@@ -48,7 +48,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
   const [homeTargetAmount, setHomeTargetAmount] = useState(0);
 
   const [paySubsBill, setPaySubsBill] = useState(true);
-  const [subsTargetAmount, setSubsTargetAmount] = useState(800);
+  const [subsTargetAmount, setSubsTargetAmount] = useState(518);
 
   const [payDebtsBill, setPayDebtsBill] = useState(false);
   const [debtsTargetAmount, setDebtsTargetAmount] = useState(0);
@@ -86,16 +86,14 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     return sum + (net > 0 ? net : 0);
   }, 0);
 
-  // Total active subscriptions upfront cash requirement for allocation
-  // (Netflix charges full ฿518 to card/account first, even if we split ฿259 with sister later in Family Hub)
-  const totalActiveSubs = subscriptions
-    .filter(s => s.status === 'ACTIVE')
-    .reduce((sum, s) => {
-      if (s.id === 'SUB-NETFLIX' || s.name?.toLowerCase().includes('netflix')) {
-        return sum + (s.fullAmount || 518);
-      }
-      return sum + (s.ourShareAmount || s.fullAmount || 0);
-    }, 0);
+  // Subscriptions that deduct directly from KBank (not bundled into Shopee SPayLater / ShopeePay)
+  // E.g. Netflix 4K UHD (full ฿518) cuts from KBank Debit directly; YouTube/Google One/CapCut cut via Shopee SPayLater
+  const kbankDirectSubs = subscriptions.filter(s => 
+    s.status === 'ACTIVE' && 
+    !s.paymentMethod?.toLowerCase().includes('shopee') && 
+    !s.paymentMethod?.toLowerCase().includes('spay')
+  );
+  const totalKBankDirectSubs = kbankDirectSubs.reduce((sum, s) => sum + (s.fullAmount || s.ourShareAmount || 518), 0) || 518;
 
   // Total personal debt monthly installments
   const totalPersonalMonthlyDebt = debts
@@ -114,14 +112,14 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     setPayHomeBill(isHomePending);
     setHomeTargetAmount(liveHome);
 
-    // 2. SPayLater: Statement Bill is exactly ฿13,639.22
+    // 2. SPayLater: Statement Bill is exactly ฿13,639.22 (includes Google One, CapCut, YouTube if on ShopeePay)
     const spayAcc = accounts.find(a => a.id === 'KBANK-SPAY') || { balance: 0 };
     const fullSpayStatement = 13639.22;
     const spayGap = Math.max(0, Math.round((fullSpayStatement - (spayAcc.balance || 0)) * 100) / 100);
     const isSpayNeeded = spayGap > 0;
 
     // Default allocation towards SPay from this inflow
-    const subsCost = totalActiveSubs > 0 ? totalActiveSubs : 800;
+    const subsCost = totalKBankDirectSubs;
     let defaultSpayAlloc = 0;
     if (isSpayNeeded) {
       if (initialInflow >= (spayGap + subsCost)) {
@@ -137,8 +135,8 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     setPaySpayBill(isSpayNeeded);
     setSpayTargetAmount(defaultSpayAlloc);
 
-    // 3. Subscriptions (Netflix เต็มจำนวน ฿518 + YouTube ฿64 + Google One ฿189 + CapCut ฿29 = ฿800)
-    const liveSubs = totalActiveSubs > 0 ? totalActiveSubs : 800;
+    // 3. Subscriptions that deduct directly from KBank (Netflix เต็มจำนวน ฿518)
+    const liveSubs = totalKBankDirectSubs;
     const isSubsNeeded = initialInflow >= liveSubs;
     setPaySubsBill(isSubsNeeded);
     setSubsTargetAmount(liveSubs);
@@ -772,10 +770,10 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                     />
                     <div>
                       <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#fff' }}>
-                        📺 บริการรายเดือน (YouTube ฿64, Google One ฿189, Netflix เต็มจำนวน ฿518, CapCut ฿29)
+                        📺 บริการรายเดือนตัดผ่านกสิกร (Netflix 4K จัดเต็ม ฿518)
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        กันเงินไว้ใน [KBANK-MAIN] ยอดรวม ฿{subsTargetAmount} (Netflix จัดเต็ม ฿518 เพื่อรองรับการตัดบัตร แล้วเคลียร์หาร ฿259 กับพี่แพรใน Family Hub)
+                        กันเงินไว้ใน [KBANK-MAIN] ฿{subsTargetAmount} สำหรับตัดบัตรเดบิต (ส่วน YouTube, Google One, CapCut ถูกรวมไปตัดในบิล Shopee SPayLater ด้านบนแล้ว ไม่ต้องกันเงินซ้ำ)
                       </div>
                     </div>
                   </label>
