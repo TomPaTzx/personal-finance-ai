@@ -54,9 +54,28 @@
   - [x] ระบบแกะรายการผ่อน SPayLater จากภาพแคปหน้าจอ Shopee (สร้างหนี้/ปรับยอดผ่อนให้อัตโนมัติ)
   - [x] ระบบ Dogfooding & Single-User Private Validation Ready
 
+- [ ] **Phase 8 (Future Blueprint): Commercial Mobile App & SaaS Transformation (แผนต่อยอดสู่แอปมือถือเพื่อการค้า)**
+  - [ ] **Track 1: Multi-Tenant Architecture & Auth (ระบบสมาชิก & แยกฐานข้อมูลผู้ใช้)**
+    - [ ] Supabase Auth Integration (Login ด้วย Google, Apple ID, LINE Login)
+    - [ ] Row-Level Security (RLS) Policy เพื่อแยกข้อมูลการเงินของผู้ใช้แต่ละคนอย่างปลอดภัย 100%
+  - [ ] **Track 2: Mobile App Packaging (แปลงเป็นแอป iOS & Android)**
+    - [ ] หุ้มโค้ดด้วย **Capacitor.js** บิลด์ไฟล์ `.ipa` (iOS) และ `.aab/.apk` (Android)
+    - [ ] รองรับ Native Mobile Features: กล้องสแกนสลิปความคมชัดสูง, FaceID/Biometrics ล็อกแอป, Local Push Notifications
+  - [ ] **Track 3: Smart AI Co-pilot (ต่อยอดสมองกล LLM อัจฉริยะ)**
+    - [ ] เชื่อมต่อ Google Gemini 1.5 Flash API (ต้นทุน ~฿0.005/ครั้ง) สำหรับคุยปรึกษาการเงินแบบภาษาธรรมชาติ
+    - [ ] Advanced Bank Slip & Statement Parser รองรับทุกธนาคารในไทย
+  - [ ] **Track 4: Monetization & Payment Gateway (ระบบชำระเงิน & แผนสร้างรายได้)**
+    - [ ] Free Tier: 3 กระเป๋าเงิน, สแกนสลิปเดือนละ 15 ใบ
+    - [ ] Sommai Pro Subscription (฿59 - ฿99/เดือน หรือ ฿690/ปี) ผ่าน Apple In-App Purchase & Google Play Billing
+    - [ ] Lifetime License (฿1,290 ซื้อขาดครั้งเดียวจบ) ผ่าน PromptPay QR / Stripe
+  - [ ] **Track 5: Store Launch & Distribution (เปิดตัวสู่ตลาด)**
+    - [ ] Apple Developer Program ($99/ปี) & Google Play Console ($25 ครั้งเดียว)
+    - [ ] นโยบายความเป็นส่วนตัว (Privacy Policy) & มาตรฐานความปลอดภัย PDPA
+    - [ ] Closed Beta Test กับกลุ่มเพื่อนและคนวงใน (Friends & Family)
+
 ---
 
-## 🎯 Next Steps:
+## 🎯 Next Immediate Steps:
 - [ ] ทดลองใช้งานจริงรอบเคลียร์บิลประจำเดือน (Monthly Bill Settlement & Allocation)
 - [ ] ติดตามผลการหักเงิน Shopee SPayLater และการกระจายเงินเข้ากระเป๋าจริง
 - [ ] บันทึกฟีดแบ็กและปรับจูนความแม่นยำของ OCR ตามสลิปจริงในชีวิตประจำวัน
