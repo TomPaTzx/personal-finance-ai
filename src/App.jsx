@@ -115,17 +115,35 @@ export default function App() {
     // Subscribe to Realtime Postgres updates across devices
     const unsubscribe = subscribeToCloudUpdates((newCloudData) => {
       // Only auto-update if not in the middle of resolving conflict
-      if (!sessionStorage.getItem('PF_CONFLICT_RESOLVED_SESSION')) {
-        setSotData(newCloudData);
-        setCloudStatus('synced');
-        setLastSyncTime(new Date());
-      }
+      setConflictData((currentConflict) => {
+        if (!currentConflict) {
+          setSotData(newCloudData);
+          setCloudStatus('synced');
+          setLastSyncTime(new Date());
+        }
+        return currentConflict;
+      });
     });
+
+    // Listen to network status (online / offline)
+    const handleOnline = () => {
+      toast('🌐 เชื่อมต่ออินเทอร์เน็ตแล้ว ระบบกำลังเชื่อมต่อ Cloud...', { type: 'info' });
+      handleCloudSync(true);
+    };
+    const handleOffline = () => {
+      setCloudStatus('error');
+      toast('📡 ออฟไลน์: บันทึกข้อมูลลงเครื่องชั่วคราว', { type: 'warning' });
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
-  }, [handleCloudSync]);
+  }, [handleCloudSync, toast]);
 
   // Sync state changes to localStorage and Supabase Cloud
   const updateSOTData = async (newData) => {

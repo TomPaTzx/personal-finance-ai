@@ -506,8 +506,15 @@ export const loadSOTData = () => {
   return INITIAL_DATA;
 };
 
-// Push to Supabase Cloud
+let cloudSyncTimer = null;
+
+// Push to Supabase Cloud (Immediate)
 export const pushCloudSOTData = async (data) => {
+  if (cloudSyncTimer) {
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = null;
+  }
+
   try {
     const { error } = await supabase
       .from('app_state')
@@ -528,7 +535,18 @@ export const pushCloudSOTData = async (data) => {
   }
 };
 
-// Fetch from Supabase Cloud
+// Debounced Cloud Push (~500ms delay to prevent network spam)
+export const debouncedPushCloudSOTData = (data, delay = 500) => {
+  return new Promise((resolve) => {
+    if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = setTimeout(async () => {
+      const res = await pushCloudSOTData(data);
+      resolve(res);
+    }, delay);
+  });
+};
+
+// Fetch from Supabase Cloud (WITHOUT overwriting localStorage)
 export const fetchCloudSOTData = async () => {
   try {
     const { data, error } = await supabase
@@ -549,12 +567,7 @@ export const fetchCloudSOTData = async () => {
 
     if (data && data.data) {
       const sanitized = sanitizeSOTData(data.data);
-      // Update local storage cache
-      try {
-        localStorage.setItem(SOT_STORAGE_KEY, JSON.stringify(sanitized));
-      } catch (err) {
-        console.error('Error saving cached cloud data to localStorage', err);
-      }
+      // NOTE: Do NOT write to localStorage here to avoid clobbering conflict checks!
       return { success: true, data: sanitized, updatedAt: data.updated_at };
     }
     return { success: false, error: 'No data returned' };
@@ -564,16 +577,24 @@ export const fetchCloudSOTData = async () => {
   }
 };
 
-// Save SOT data to both LocalStorage and Supabase Cloud
-export const saveSOTData = (data) => {
+// Explicit commit to LocalStorage
+export const commitToLocalStorage = (data) => {
   try {
     localStorage.setItem(SOT_STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
     console.error('Failed to save SOT data to localStorage', e);
   }
+};
 
-  // Asynchronous background Cloud sync
-  pushCloudSOTData(data);
+// Save SOT data to both LocalStorage and Supabase Cloud (Debounced)
+export const saveSOTData = (data, immediate = false) => {
+  commitToLocalStorage(data);
+
+  if (immediate) {
+    pushCloudSOTData(data);
+  } else {
+    debouncedPushCloudSOTData(data, 500);
+  }
 };
 
 // Realtime Cloud Subscription
