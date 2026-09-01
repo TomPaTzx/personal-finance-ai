@@ -35,7 +35,50 @@ export function triageIntakeText(text) {
     }
   }
 
-  // Determine Drop Type
+  // 1. FINANCIAL_CONSULTATION / ADVISORY & PLANNING QUESTIONS
+  const isQuestionOrConsult = 
+    clean.includes('ช่วยคิด') || 
+    clean.includes('ช่วยคำนวณ') || 
+    clean.includes('เท่าไหร่ดี') || 
+    clean.includes('ปรึกษา') || 
+    clean.includes('วางแผน') || 
+    clean.includes('เติมบัญชี') || 
+    clean.includes('เติมเงิน') || 
+    clean.includes('จัดสรร') || 
+    clean.includes('โอเย็น') || 
+    clean.includes('วันเสาร์') || 
+    clean.includes('โอที') || 
+    clean.includes('ยังไม่เข้า') || 
+    clean.includes('ผ้าอ้อม') || 
+    clean.includes('ลูก') || 
+    clean.includes('น้องพีเจ') || 
+    clean.includes('ค่าใช้จ่ายทั้งหมด') || 
+    clean.includes('จะพอไหม') || 
+    clean.includes('ทำยังไงดี') || 
+    clean.includes('แนะนำหน่อย') ||
+    clean.includes('แบ่งเงิน') ||
+    clean.includes('กี่บาท') ||
+    clean.includes('ควรเก็บ');
+
+  if (isQuestionOrConsult) {
+    let category = 'BUDGET_PLANNING';
+    if (clean.includes('ลูก') || clean.includes('ผ้าอ้อม') || clean.includes('น้องพีเจ') || clean.includes('แจง') || clean.includes('นม') || clean.includes('เด็ก')) {
+      category = 'KIDS_FAMILY_BUDGET';
+    } else if (clean.includes('โอที') || clean.includes('โอเย็น') || clean.includes('วันเสาร์') || clean.includes('เงินเข้า')) {
+      category = 'CASHFLOW_PLANNING';
+    } else if (clean.includes('ผ่อน') || clean.includes('หนี้') || clean.includes('บิล')) {
+      category = 'DEBT_OPTIMIZATION';
+    }
+
+    return {
+      dropType: 'FINANCIAL_CONSULTATION',
+      category,
+      amount: amount || 0,
+      confidence: 0.96
+    };
+  }
+
+  // 2. SLIP_RECEIPT
   if (clean.includes('สลิป') || clean.includes('โอนเงิน') || clean.includes('ใบเสร็จ') || clean.includes('จ่ายค่า')) {
     return {
       dropType: 'SLIP_RECEIPT',
@@ -45,7 +88,8 @@ export function triageIntakeText(text) {
     };
   }
 
-  if (clean.includes('อยากได้') || clean.includes('อยากซื้อ') || clean.includes('ควรซื้อ') || clean.includes('ดีไหม') || clean.includes('ผ่อน')) {
+  // 3. PURCHASE_DECISION
+  if (clean.includes('อยากได้') || clean.includes('อยากซื้อ') || clean.includes('ควรซื้อ') || clean.includes('ดีไหม') || clean.includes('ผ่อน') || clean.includes('ซื้อ')) {
     return {
       dropType: 'PURCHASE_DECISION',
       category: clean.includes('กล้อง') || clean.includes('เลนส์') || clean.includes('ไฟ') ? 'PRODUCTION' : 
@@ -55,6 +99,7 @@ export function triageIntakeText(text) {
     };
   }
 
+  // 4. INCOME_LOG
   if (clean.includes('เงินเดือน') || clean.includes('รายได้') || clean.includes('รับเงิน') || clean.includes('โบนัส')) {
     return {
       dropType: 'INCOME_LOG',

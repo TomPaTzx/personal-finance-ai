@@ -214,10 +214,10 @@ export default function PipelineView({ sotData, updateSOTData }) {
         <div style={{ display: 'flex', gap: '8px', marginTop: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ตัวอย่างลองกด:</span>
           {[
+            'ตอนนี้เงินโอเย็นและวันเสาร์ยังไม่เข้า แต่อยากเติมบัญชีลูกไว้สำหรับค่าผ้าอ้อมช่วยคิดหน่อยว่าเท่าไหร่ดี',
             'อยากซื้อ MacBook Pro M4 79,900 บาท ไว้ตัดต่อวิดีโอ',
-            'อยากได้หูฟัง AirPods Max 19,900 บาท ใส่เท่ๆ',
-            'อยากผ่อนมอเตอร์ไซค์ไฟฟ้า 65,000 บาท ขี่ไปทำงาน',
-            'อยากลงคอร์สเรียน AI Director 15,000 บาท'
+            'เงินเดือนออกแล้ว ควรแบ่งเข้ากระเป๋าสำรองฉุกเฉินกี่บาทดี?',
+            'อยากได้หูฟัง AirPods Max 19,900 บาท ใส่เท่ๆ'
           ].map((sample, idx) => (
             <button
               key={idx}
@@ -247,17 +247,20 @@ export default function PipelineView({ sotData, updateSOTData }) {
         <div className="glass-panel" style={{ padding: '24px', border: '1px solid var(--border-glow)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="badge badge-purple">🎯 CURRENT PIPELINE FOCUS</span>
+              <span className={`badge ${currentDrop.dropType === 'FINANCIAL_CONSULTATION' ? 'badge-cyan' : 'badge-purple'}`}>
+                {currentDrop.dropType === 'FINANCIAL_CONSULTATION' ? '💬 ปรึกษาการเงิน & วางแผนงบประมาณ' : '🎯 CURRENT PIPELINE FOCUS'}
+              </span>
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                 HASH: {currentDrop.hash}
               </span>
             </div>
             {currentDrop.verdict?.decisionFinal && (
               <span className={`badge ${
-                currentDrop.verdict.decisionFinal === 'APPROVED' ? 'badge-emerald' :
+                currentDrop.verdict.decisionFinal === 'APPROVED' || currentDrop.verdict.decisionFinal === 'ADVISED' ? 'badge-emerald' :
                 currentDrop.verdict.decisionFinal === 'PARKED' ? 'badge-amber' : 'badge-rose'
               }`}>
-                {currentDrop.verdict.decisionFinal === 'APPROVED' ? '✅ นายท่านอนุมัติแล้ว' :
+                {currentDrop.verdict.decisionFinal === 'ADVISED' ? '💡 บันทึกคำแนะนำแล้ว' :
+                 currentDrop.verdict.decisionFinal === 'APPROVED' ? '✅ นายท่านอนุมัติแล้ว' :
                  currentDrop.verdict.decisionFinal === 'PARKED' ? '⏳ นายท่านสั่งพักไว้ (Wishlist)' : '❌ นายท่านปฏิเสธ (ประหยัดเงิน)'}
               </span>
             )}
@@ -267,10 +270,25 @@ export default function PipelineView({ sotData, updateSOTData }) {
             "{currentDrop.rawText}"
           </h3>
           <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-            <span>ยอดประมาณการ: <b style={{ color: 'var(--accent-cyan)' }}>{currentDrop.amount ? `฿${currentDrop.amount.toLocaleString()}` : 'ไม่ได้ระบุ'}</b></span>
+            <span>ยอดแนะนำ / ประมาณการ: <b style={{ color: 'var(--accent-cyan)' }}>{currentDrop.verdict?.recommendedAmount ? `฿${currentDrop.verdict.recommendedAmount.toLocaleString()}` : currentDrop.amount ? `฿${currentDrop.amount.toLocaleString()}` : 'ตามแผนจัดสรร'}</b></span>
             <span>หมวดหมู่: <b style={{ color: '#ffffff' }}>{currentDrop.category}</b></span>
             <span>ประเภท: <b style={{ color: '#ffffff' }}>{currentDrop.dropType}</b></span>
           </div>
+
+          {/* If FINANCIAL_CONSULTATION: Render Coach Summary Banner */}
+          {currentDrop.verdict?.coachSummary && (
+            <div style={{ 
+              background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.12), rgba(6, 182, 212, 0.08))', 
+              border: '1px solid rgba(6, 182, 212, 0.4)', 
+              borderRadius: 'var(--radius-md)', 
+              padding: '18px 20px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ fontSize: '0.95rem', lineHeight: '1.7', color: '#f0f9ff', whiteSpace: 'pre-line' }}>
+                {currentDrop.verdict.coachSummary}
+              </div>
+            </div>
+          )}
 
           {/* Dual Advisors Debate Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '20px' }}>
@@ -291,7 +309,7 @@ export default function PipelineView({ sotData, updateSOTData }) {
                   {currentDrop.verdict?.sonarScore || 0} / 5.0
                 </span>
               </div>
-              <p style={{ fontSize: '0.88rem', lineHeight: '1.6', color: '#e2e8f0' }}>
+              <p style={{ fontSize: '0.88rem', lineHeight: '1.6', color: '#e2e8f0', whiteSpace: 'pre-line' }}>
                 {currentDrop.verdict?.sonarAnalysis}
               </p>
             </div>
@@ -312,57 +330,59 @@ export default function PipelineView({ sotData, updateSOTData }) {
                   {currentDrop.verdict?.bestScore || 0} / 5.0
                 </span>
               </div>
-              <p style={{ fontSize: '0.88rem', lineHeight: '1.6', color: '#e2e8f0' }}>
+              <p style={{ fontSize: '0.88rem', lineHeight: '1.6', color: '#e2e8f0', whiteSpace: 'pre-line' }}>
                 {currentDrop.verdict?.bestAnalysis}
               </p>
             </div>
 
           </div>
 
-          {/* 3-Axis Verdict Summary */}
-          <div style={{ 
-            background: 'rgba(15, 23, 42, 0.8)', 
-            border: '1px solid var(--border-subtle)', 
-            borderRadius: 'var(--radius-md)', 
-            padding: '18px',
-            marginBottom: '20px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Scale size={18} color="var(--accent-amber)" />
-                <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>ผลสังเคราะห์ Verdict 3 มิติ (0-5)</span>
+          {/* 3-Axis Verdict Summary for Purchase Decisions */}
+          {currentDrop.dropType !== 'FINANCIAL_CONSULTATION' && (
+            <div style={{ 
+              background: 'rgba(15, 23, 42, 0.8)', 
+              border: '1px solid var(--border-subtle)', 
+              borderRadius: 'var(--radius-md)', 
+              padding: '18px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Scale size={18} color="var(--accent-amber)" />
+                  <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>ผลสังเคราะห์ Verdict 3 มิติ (0-5)</span>
+                </div>
+                <span className={`badge ${
+                  currentDrop.verdict?.overallRecommendation === 'APPROVED' ? 'badge-emerald' :
+                  currentDrop.verdict?.overallRecommendation === 'CONDITIONAL' ? 'badge-amber' : 'badge-rose'
+                }`}>
+                  คำแนะนำ AI: {currentDrop.verdict?.overallRecommendation}
+                </span>
               </div>
-              <span className={`badge ${
-                currentDrop.verdict?.overallRecommendation === 'APPROVED' ? 'badge-emerald' :
-                currentDrop.verdict?.overallRecommendation === 'CONDITIONAL' ? 'badge-amber' : 'badge-rose'
-              }`}>
-                คำแนะนำ AI: {currentDrop.verdict?.overallRecommendation}
-              </span>
-            </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>1. Feasibility (ความพร้อมเงิน)</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-cyan)', marginTop: '4px' }}>
-                  {currentDrop.verdict?.sonarScore} <span style={{ fontSize: '0.75rem' }}>/ 5</span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>1. Feasibility (ความพร้อมเงิน)</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-cyan)', marginTop: '4px' }}>
+                    {currentDrop.verdict?.sonarScore} <span style={{ fontSize: '0.75rem' }}>/ 5</span>
+                  </div>
                 </div>
-              </div>
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>2. Value & Need (ความคุ้มค่า)</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-purple)', marginTop: '4px' }}>
-                  {currentDrop.verdict?.valueScore} <span style={{ fontSize: '0.75rem' }}>/ 5</span>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>2. Value & Need (ความคุ้มค่า)</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-purple)', marginTop: '4px' }}>
+                    {currentDrop.verdict?.valueScore} <span style={{ fontSize: '0.75rem' }}>/ 5</span>
+                  </div>
                 </div>
-              </div>
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>3. Risk & Impact (ความสบายใจ)</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-emerald)', marginTop: '4px' }}>
-                  {currentDrop.verdict?.bestScore} <span style={{ fontSize: '0.75rem' }}>/ 5</span>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>3. Risk & Impact (ความสบายใจ)</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-emerald)', marginTop: '4px' }}>
+                    {currentDrop.verdict?.bestScore} <span style={{ fontSize: '0.75rem' }}>/ 5</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Decision Gate: Master / User Commands */}
+          {/* Decision Gate / Action Buttons */}
           <div style={{ 
             display: 'flex', 
             alignItems: 'center', 
@@ -374,28 +394,39 @@ export default function PipelineView({ sotData, updateSOTData }) {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#f8fafc' }}>
-                👑 คำตัดสินชี้ขาด (เฉพาะนายท่าน):
+                {currentDrop.dropType === 'FINANCIAL_CONSULTATION' ? '📌 จัดการคำแนะนำนี้:' : '👑 คำตัดสินชี้ขาด (เฉพาะนายท่าน):'}
               </span>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button 
-                onClick={() => handleDecision('APPROVED')} 
-                className="btn btn-success"
-              >
-                <CheckCircle2 size={16} /> อนุมัติ (Action / สั่งซื้อ)
-              </button>
-              <button 
-                onClick={() => handleDecision('PARKED')} 
-                className="btn btn-warning"
-              >
-                <PauseCircle size={16} /> พักไว้ (Parked / ดูใจ 14 วัน)
-              </button>
-              <button 
-                onClick={() => handleDecision('REJECTED')} 
-                className="btn btn-danger"
-              >
-                <XCircle size={16} /> ปฏิเสธ (ตัดกิเลส / บันทึกเงินที่ประหยัด)
-              </button>
+              {currentDrop.dropType === 'FINANCIAL_CONSULTATION' ? (
+                <button 
+                  onClick={() => handleDecision('ADVISED')} 
+                  className="btn btn-primary"
+                >
+                  <CheckCircle2 size={16} /> บันทึกคำแนะนำนี้เข้าคลัง (Save Note)
+                </button>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => handleDecision('APPROVED')} 
+                    className="btn btn-success"
+                  >
+                    <CheckCircle2 size={16} /> อนุมัติ (Action / สั่งซื้อ)
+                  </button>
+                  <button 
+                    onClick={() => handleDecision('PARKED')} 
+                    className="btn btn-warning"
+                  >
+                    <PauseCircle size={16} /> พักไว้ (Parked / ดูใจ 14 วัน)
+                  </button>
+                  <button 
+                    onClick={() => handleDecision('REJECTED')} 
+                    className="btn btn-danger"
+                  >
+                    <XCircle size={16} /> ปฏิเสธ (ตัดกิเลส / บันทึกเงินที่ประหยัด)
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -407,7 +438,7 @@ export default function PipelineView({ sotData, updateSOTData }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <History size={20} color="var(--accent-cyan)" />
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>คลังประวัติการปล่อยของ (SQLite Source of Truth)</h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>คลังประวัติการปล่อยของ & ปรึกษา (SQLite Source of Truth)</h3>
             <span className="badge badge-cyan">{filteredDrops.length} รายการ</span>
           </div>
 
@@ -440,6 +471,7 @@ export default function PipelineView({ sotData, updateSOTData }) {
               }}
             >
               <option value="ALL">ทั้งหมด</option>
+              <option value="FINANCIAL_CONSULTATION">ปรึกษาวางแผนการเงิน</option>
               <option value="PURCHASE_DECISION">ปรึกษาซื้อของ</option>
               <option value="SLIP_RECEIPT">สลิป / ใบเสร็จ</option>
               <option value="INCOME_LOG">รายรับ</option>

@@ -1,9 +1,11 @@
-// Dual Advisor Engine: Sonar (Fact & Feasibility) & Best (Devil's Advocate & Risk Auditor)
+// Dual Advisor Engine: Sonar (Fact & Feasibility) & Best (Devil's Advocate & Risk Auditor) + Jason (Financial Coach)
 
 export function runDualAdvisorAnalysis(drop, sotData) {
   const amount = drop.amount || 0;
   const accounts = sotData.accounts || [];
   const debts = sotData.debts || [];
+  const bnplItems = sotData.bnplItems || [];
+  const familySettlements = sotData.familySettlements || [];
 
   const baseNetSalary = 17993.32; // Real net base salary from Chonprathanwittaya payslip
   const foodAcc = accounts.find(a => a.id === 'KBANK-FOOD') || { balance: 0 };
@@ -11,12 +13,59 @@ export function runDualAdvisorAnalysis(drop, sotData) {
   const homeAcc = accounts.find(a => a.id === 'KBANK-HOME') || { balance: 0 };
   const emergAcc = accounts.find(a => a.id === 'KBANK-EMERG') || { balance: 0 };
   const debitAcc = accounts.find(a => a.id === 'KBANK-DEBIT') || { balance: 0 };
+  const ktbSalaryAcc = accounts.find(a => a.id === 'KTB-SALARY') || { balance: 0 };
   const spayLaterCredit = accounts.find(a => a.id === 'SPAYLATER') || { balance: 100000 };
 
   const totalMonthlyDebt = debts.reduce((sum, d) => sum + (d.monthlyPayment || 0), 0);
   const totalDebtRemaining = debts.reduce((sum, d) => sum + (d.remainingAmount || 0), 0);
 
   const textLower = drop.rawText.toLowerCase();
+
+  // SPECIAL HANDLER: FINANCIAL_CONSULTATION (ถามคำถาม ปรึกษาการเงิน วางแผนงบประมาณ)
+  if (drop.dropType === 'FINANCIAL_CONSULTATION') {
+    const isKidsOrDiapers = textLower.includes('ผ้าอ้อม') || textLower.includes('ลูก') || textLower.includes('น้องพีเจ') || textLower.includes('แจง');
+    const isOtCashflow = textLower.includes('โอเย็น') || textLower.includes('วันเสาร์') || textLower.includes('โอที') || textLower.includes('ยังไม่เข้า');
+    
+    // Calculate typical child expenses from BNPL / Family items
+    // e.g. Merries Diaper ฿449, D-nee ฿399, Milk/Snack ~฿500
+    const suggestedKidsBudget = 1800; // Recommended interim top-up
+    const expectedEveningOt = 15 * 200; // ฿3,000 (15 days x ฿200)
+    const expectedSatOt = 4 * 450; // ฿1,800 (~4 Saturdays)
+    const totalExpectedOt = expectedEveningOt + expectedSatOt; // ~฿4,800
+
+    let coachSummary = '';
+    let sonarAnalysis = '';
+    let bestAnalysis = '';
+    let recommendedAmount = suggestedKidsBudget;
+
+    if (isKidsOrDiapers) {
+      coachSummary = `💡 **คำแนะนำจาก Jason (โค้ชการเงิน):**\nในช่วงที่เงินโอเย็นและโอเสาร์ยังไม่เข้า แนะนำให้ **ดึงเงินจากบัญชีกสิกร (KBANK-DEBIT) เติมเข้าบัญชีของใช้ลูก (น้องพีเจ) ไว้ที่ ฿1,500 – ฿2,000 ก่อน** ซึ่งยอดนี้ครอบคลุมค่าผ้าอ้อม Merries (฿449) 2-3 ห่อ + น้ำยาซักผ้า D-nee (฿399) และของใช้จำเป็นได้ 2-3 สัปดาห์เต็ม โดยไม่กระทบเงินสำรองฉุกเฉิน และเมื่อเงินโอทีเข้า (~฿4,800) ค่อยนำมาเติมสมทบส่วนที่เหลือครับ`;
+      
+      sonarAnalysis = `📊 **วิเคราะห์สภาพคล่องจริง:**\n• เงินเดือนฐานสุทธิ: ฿17,993.32 / เดือน\n• คาดการณ์เงินโอทีที่จะเข้า: โอเย็น ~฿3,000 + โอเสาร์ ~฿1,800 (รวม ~฿4,800)\n• บัญชี KBANK-DEBIT และเงินเดือนมีสภาพคล่องหมุนเวียน การดึงเงินสำรอง ฿1,500 - ฿2,000 คิดเป็นเพียง ~8-10% ของเงินเดือนฐาน ไม่กระทบยอดบิล Shopee SPayLater (฿13,639) และ Netflix (฿518)`;
+      
+      bestAnalysis = `🎯 **ข้อคิด & ลำดับความสำคัญ:**\nของใช้ลูกเป็น "Fixed Necessity (ความจำเป็นสูงสุด)" แต่เทคนิคการคุมเงินช่วงรอโอทีคือ **"ซื้อใช้ทีละงวดตามโปร"** (รอบละ 1-2 แพ็ค) อย่าเพิ่งกดสั่งตุนข้ามเดือน เพื่อให้กระแสเงินสดในมือกินอิ่มนอนหลับสบาย ไม่ตึงมือครับ`;
+    } else {
+      coachSummary = `💡 **คำแนะนำจาก Jason:**\nแนะนำให้จัดสรรงบแบบแยกกระเป๋าชัดเจน โดยล็อกเงินค่าบิลบังคับไว้ก่อน แล้วแบ่งงบส่วนที่เหลือตามความจำเป็นเร่งด่วน`;
+      sonarAnalysis = `📊 **วิเคราะห์สภาพคล่อง:** เงินเดือนฐาน ฿${baseNetSalary.toLocaleString()} มีภาระผ่อนเดือนละ ฿${totalMonthlyDebt.toLocaleString()} สภาพคล่องโดยรวมยังอยู่ในเกณฑ์บริหารจัดการได้`;
+      bestAnalysis = `🎯 **ข้อคิด:** ตรวจสอบให้แน่ใจว่าไม่มีการก่อหนี้ผ่อนสินค้าฟุ่มเฟือยใหม่ในช่วงที่กระแสเงินสดยังรอเงินโอที`;
+    }
+
+    return {
+      isConsultation: true,
+      coachSummary,
+      recommendedAmount,
+      sonarScore: 4.8,
+      sonarAnalysis,
+      bestScore: 4.9,
+      bestAnalysis,
+      valueScore: 5.0,
+      overallRecommendation: 'ADVISED',
+      decisionFinal: null,
+      moneySaved: 0
+    };
+  }
+
+  // STANDARD PURCHASE DECISION ADVISORY
   const isSchoolCardOrSnack = textLower.includes('เติมบัตร') || textLower.includes('โรงเรียน') || textLower.includes('ไอติม') || textLower.includes('ขนม') || textLower.includes('ไก่ทอด');
   const isBeerOrHangout = textLower.includes('เบียร์') || textLower.includes('เหล้า') || textLower.includes('สังสรรค์') || textLower.includes('เพื่อนร่วมงาน') || textLower.includes('ชลประทาน');
   const isBuffetOrFood = textLower.includes('shinkanzen') || textLower.includes('บุฟเฟต์') || textLower.includes('กิน') || textLower.includes('แซ่บ') || textLower.includes('อาหาร');
@@ -102,6 +151,7 @@ export function runDualAdvisorAnalysis(drop, sotData) {
   }
 
   return {
+    isConsultation: false,
     sonarScore: parseFloat(sonarScore.toFixed(1)),
     sonarAnalysis,
     bestScore: parseFloat(bestScore.toFixed(1)),
