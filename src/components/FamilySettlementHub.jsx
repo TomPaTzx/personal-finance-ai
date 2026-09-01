@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Users, Plus, CheckCircle2, ArrowRightLeft, CreditCard, Heart, Home, AlertCircle, Sparkles, Edit3, Trash2, Wallet, ArrowDownRight, ArrowUpRight } from 'lucide-react';
 import { addAuditEvent } from '../services/storageService';
+import { useModalNotification } from '../context/ModalNotificationContext';
 
 export default function FamilySettlementHub({ sotData, updateSOTData }) {
+  const { confirm: modalConfirm, alert: modalAlert, toast } = useModalNotification();
   const [selectedPersonId, setSelectedPersonId] = useState('PERSON-MOM');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
@@ -132,8 +134,15 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
   };
 
   // Delete single item
-  const handleDeleteItem = (itemId) => {
-    if (!window.confirm('ต้องการลบรายการนี้ใช่หรือไม่?')) return;
+  const handleDeleteItem = async (itemId) => {
+    const isConfirmed = await modalConfirm({
+      title: 'ยืนยันการลบรายการ',
+      message: 'ต้องการลบรายการเคลียร์บิลนี้ใช่หรือไม่?',
+      variant: 'danger',
+      confirmText: 'ลบรายการ',
+      cancelText: 'ยกเลิก'
+    });
+    if (!isConfirmed) return;
 
     const updatedFamily = familyList.map(person => {
       if (person.id === selectedPersonId) {
@@ -148,12 +157,13 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
     });
 
     updateSOTData(nextData);
+    toast('🗑️ ลบรายการเรียบร้อยแล้ว', { type: 'info' });
   };
 
   // Open Settlement Modal
   const handleOpenSettleModal = () => {
     if (pendingItems.length === 0) {
-      alert('ไม่มีรายการค้างชำระสำหรับคนนี้ครับ ทุกอย่างเคลียร์ครบแล้ว!');
+      toast('✨ ไม่มีรายการค้างชำระสำหรับคนนี้ ทุกอย่างเคลียร์ครบแล้ว!', { type: 'success' });
       return;
     }
     // Set smart default wallet
@@ -216,7 +226,7 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
 
     updateSOTData(nextData);
     setShowSettleModal(false);
-    alert(`🎉 เคลียร์ยอดสุทธิกับ ${selectedPerson.personName} เรียบร้อยแล้ว!\n${autoUpdateWallet ? `(บันทึกปรับยอดในกระเป๋า ${selectedWallet?.name})` : ''}`);
+    toast(`🎉 เคลียร์ยอดสุทธิกับ ${selectedPerson.personName} เรียบร้อยแล้ว! ${autoUpdateWallet ? `(ตัดปรับยอดในกระเป๋า ${selectedWallet?.name})` : ''}`, { type: 'success' });
   };
 
   return (

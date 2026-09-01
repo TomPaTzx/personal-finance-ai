@@ -37,3 +37,10 @@
   - [x] หน้ารายการผ่อนของรายชิ้น & SPayLater / Debt Tracker
   - [x] ระบบสแกนสลิป & สรุป Net Worth Dashboard
 
+- [x] **Phase 6: Cloud Synchronization & Multi-Device Realtime (Supabase Cloud)**
+  - [x] เชื่อมต่อ Supabase PostgreSQL Cloud Backend
+  - [x] ระบบ Auto-Sync ข้ามอุปกรณ์ (เปิดบนคอมหรือมือถือ ค่าตรงกันทันที)
+  - [x] Realtime Postgres Subscription Listener
+  - [x] สถานะการเชื่อมต่อ Cloud Status Badge & ปุ่ม Sync ด่วนบน Header
+
+

@@ -84,3 +84,15 @@
    * ในช่วงเดือนเปิดเทอมที่มีโอเย็น ทยอยกันเงินสดโอเย็นเข้ากระเป๋า 4 (`KBANK-EMERG`) เพื่อเป็นเบาะรองรับช่วงปิดเทอม
 3. 📉 **นโยบายปลอดหนี้ผ่อน (Zero-Debt Acceleration)**:
    * ปล่อยให้รายการผ่อนสินค้าเดิม (Sony XM5, CUKTECH, หมวกกันน็อก) ทยอยหมดตามงวด และงดผ่อนของชิ้นใหม่ก่อนช่วงปิดเทอม
+
+---
+
+## ☁️ 6. ระบบจัดเก็บและซิงค์ข้อมูลบนคลาวด์ (Cloud Sync Architecture)
+* **Backend:** Supabase PostgreSQL Database (Region: Singapore `ap-southeast-1`)
+* **Project Reference:** `neflzvrowmjkgixaejzt`
+* **Table:** `app_state` (Record Key: `CURRENT_SOT`)
+* **กลไกการทำงาน:**
+  1. **Dual-Layer Persistence:** บันทึกทั้งลง `localStorage` (เพื่อความเร็วและเปิดดูออฟไลน์ได้) และ Auto-Push ขึ้น Supabase Cloud ทันที
+  2. **Multi-Device Realtime:** รองรับ Realtime Postgres Change Listener เมื่อแก้ไขตัวเลขจากอุปกรณ์หนึ่ง อุปกรณ์อื่นจะอัปเดตตามทันที
+  3. **Auto-Seed:** หาก Cloud ยังไม่มีข้อมูล จะดึงค่าล่าสุดจากระบบขึ้นไป Seed บน Cloud ให้อัตโนมัติ
+

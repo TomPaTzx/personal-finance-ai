@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { UploadCloud, CheckCircle, Receipt, ArrowDownRight, Sparkles } from 'lucide-react';
 import { simulateSlipOCR } from '../services/slipParserService';
 import { addAuditEvent } from '../services/storageService';
+import { useModalNotification } from '../context/ModalNotificationContext';
 
 export default function SlipScanner({ sotData, updateSOTData }) {
+  const { toast } = useModalNotification();
   const [isScanning, setIsScanning] = useState(false);
   const [scannedResult, setScannedResult] = useState(null);
   const [selectedAccount, setSelectedAccount] = useState('ACC-02');
@@ -58,7 +60,7 @@ export default function SlipScanner({ sotData, updateSOTData }) {
     });
 
     updateSOTData(nextData);
-    alert(`✅ บันทึกสลิปเรียบร้อย! ตัดยอด ฿${amount.toLocaleString()} จาก ${selectedAccount}`);
+    toast(`✅ บันทึกสลิปเรียบร้อย! ตัดยอด ฿${amount.toLocaleString()} จาก ${selectedAccount}`, { type: 'success' });
     setScannedResult(null);
   };
 

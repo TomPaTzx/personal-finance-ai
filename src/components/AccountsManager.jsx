@@ -24,8 +24,10 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { addAuditEvent } from '../services/storageService';
+import { useModalNotification } from '../context/ModalNotificationContext';
 
 export default function AccountsManager({ sotData, updateSOTData }) {
+  const { confirm: modalConfirm, alert: modalAlert, toast } = useModalNotification();
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showOtModal, setShowOtModal] = useState(false);
   const [showAllocationModal, setShowAllocationModal] = useState(false);
@@ -231,20 +233,34 @@ export default function AccountsManager({ sotData, updateSOTData }) {
   const safeToSpendPool = Math.round((parsedInflow - mandatoryBillsSum) * 100) / 100;
 
   // Execute Pipeline Allocation
-  const handleExecuteAllocation = () => {
+  const handleExecuteAllocation = async () => {
     if (totalAllocated <= 0) {
-      alert('⚠️ กรุณาระบุยอดเงินที่จะจัดสรร');
+      await modalAlert({
+        title: 'ยอดเงินไม่ถูกต้อง',
+        message: 'กรุณาระบุยอดเงินที่จะนำมาจัดสรร',
+        variant: 'warning'
+      });
       return;
     }
 
     if (sourceBalance < totalAllocated) {
-      if (!window.confirm(`⚠️ ยอดเงินในบัญชีต้นทาง (${sourceAccount?.name}) ปัจจุบันมี ฿${sourceBalance.toLocaleString()} แต่มียอดจัดสรรรวม ฿${totalAllocated.toLocaleString()}\n\nต้องการยืนยันการจัดสรรและกระจายเข้ากระเป๋าจริงหรือไม่?`)) {
-        return;
-      }
+      const isConfirmed = await modalConfirm({
+        title: '⚠️ ยอดเงินต้นทางน้อยกว่ายอดจัดสรร',
+        message: `ยอดเงินในบัญชีต้นทาง (${sourceAccount?.name}) มี ฿${sourceBalance.toLocaleString()} แต่มียอดจัดสรรรวม ฿${totalAllocated.toLocaleString()}\n\nต้องการยืนยันการจัดสรรและกระจายเข้ากระเป๋าจริงหรือไม่?`,
+        variant: 'warning',
+        confirmText: 'ยืนยันจัดสรร',
+        cancelText: 'ยกเลิก'
+      });
+      if (!isConfirmed) return;
     } else {
-      if (!window.confirm(`ยืนยันการจัดสรรเงิน ฿${totalAllocated.toLocaleString()} จาก [${sourceAccount?.name}] เข้ากระเป๋าตามสูตรนี้ทันที?`)) {
-        return;
-      }
+      const isConfirmed = await modalConfirm({
+        title: '✨ ยืนยันการจัดสรรและกระจายเงิน',
+        message: `ยืนยันการจัดสรรเงิน ฿${totalAllocated.toLocaleString()} จาก [${sourceAccount?.name}] กระจายเข้ากระเป๋าตามสูตรนี้ทันที?`,
+        variant: 'success',
+        confirmText: 'ยืนยันกระจายเงินทันที',
+        cancelText: 'ตรวจสอบก่อน'
+      });
+      if (!isConfirmed) return;
     }
 
     const updatedAccounts = accounts.map(acc => {
@@ -302,17 +318,21 @@ export default function AccountsManager({ sotData, updateSOTData }) {
 
     updateSOTData(nextData);
     setShowAllocationModal(false);
-    alert(`🎉 จัดสรรเงินเรียบร้อยแล้ว!\nกระจายเงิน ฿${totalAllocated.toLocaleString()} เข้ากระเป๋าต่างๆ เรียบร้อย ล็อกบิลบังคับครบ และพร้อมใช้จ่ายแบบสบายใจครับ`);
+    toast(`🎉 จัดสรรเงิน ฿${totalAllocated.toLocaleString()} กระจายเข้ากระเป๋าเรียบร้อยแล้ว!`, { type: 'success' });
   };
 
-  const handleTransfer = (e) => {
+  const handleTransfer = async (e) => {
     e.preventDefault();
     const amount = parseFloat(transferAmount);
     if (isNaN(amount) || amount <= 0) return;
 
     const sourceAcc = accounts.find(a => a.id === fromAccount);
     if (!sourceAcc || sourceAcc.balance < amount) {
-      alert('⚠️ ยอดเงินในบัญชีต้นทางไม่เพียงพอ!');
+      await modalAlert({
+        title: 'ยอดเงินไม่เพียงพอ',
+        message: `ยอดเงินในบัญชีต้นทาง [${sourceAcc?.name || 'ต้นทาง'}] มีไม่พอโอนจำนวน ฿${amount.toLocaleString()}`,
+        variant: 'danger'
+      });
       return;
     }
 
@@ -332,6 +352,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     updateSOTData(nextData);
     setShowTransferModal(false);
     setTransferAmount('');
+    toast(`💸 โอนเงิน ฿${amount.toLocaleString()} เรียบร้อยแล้ว!`, { type: 'success' });
   };
 
   const handleLogOtCash = (e) => {
@@ -373,7 +394,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
 
     updateSOTData(nextData);
     setShowOtModal(false);
-    alert(`🎉 บันทึกรับ ${otLabel} รวม ฿${calculatedAmount.toLocaleString()} เข้ากระเป๋า ${depositTarget} เรียบร้อยแล้ว!`);
+    toast(`🎉 บันทึกรับ ${otLabel} รวม ฿${calculatedAmount.toLocaleString()} เข้ากระเป๋าเรียบร้อยแล้ว!`, { type: 'success' });
   };
 
   const handleOpenEditAccount = (acc) => {

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { CreditCard, CheckCircle2, AlertCircle, Plus, Calendar, Percent, Edit3, ShoppingBag, ArrowRight, Sparkles, Receipt, Users, Check, Clock, Trash2, UserCheck, Smartphone } from 'lucide-react';
 import { addAuditEvent } from '../services/storageService';
+import { useModalNotification } from '../context/ModalNotificationContext';
 
 export default function DebtTracker({ sotData, updateSOTData }) {
+  const { confirm: modalConfirm, alert: modalAlert, toast } = useModalNotification();
   const [showAddDebtModal, setShowAddDebtModal] = useState(false);
   const [editingDebt, setEditingDebt] = useState(null);
   
@@ -137,17 +139,33 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     setEditingBnpl(null);
   };
 
-  const handleDeleteBnpl = (itemId) => {
-    if (!window.confirm('ต้องการลบรายการนี้ใช่หรือไม่?')) return;
+  const handleDeleteBnpl = async (itemId) => {
+    const isConfirmed = await modalConfirm({
+      title: 'ยืนยันการลบรายการ',
+      message: 'ต้องการลบรายการช้อปปิ้งนี้ออกจากระบบใช่หรือไม่?',
+      variant: 'danger',
+      confirmText: 'ลบรายการ',
+      cancelText: 'ยกเลิก'
+    });
+    if (!isConfirmed) return;
+
     const updatedBnpl = bnplItems.filter(i => i.id !== itemId);
     let nextData = { ...sotData, bnplItems: updatedBnpl };
     nextData = addAuditEvent(nextData, 'BNPL', itemId, 'BNPL_DELETED');
     updateSOTData(nextData);
+    toast('🗑️ ลบรายการเรียบร้อยแล้ว', { type: 'info' });
   };
 
   // Settle Full SPayLater Statement
-  const handlePayFullStatement = () => {
-    if (!window.confirm(`ยืนยันการชำระบิล Shopee SPayLater เต็มจำนวน ฿${totalSpayStatement.toLocaleString()} (ตัดเงินจากกระเป๋า "กันเงินจ่าย Shopee SPayLater (KBANK-SPAY)")?`)) return;
+  const handlePayFullStatement = async () => {
+    const isConfirmed = await modalConfirm({
+      title: '💳 ยืนยันการชำระบิล SPayLater เต็มจำนวน',
+      message: `ยืนยันการชำระบิล Shopee SPayLater เต็มจำนวน ฿${totalSpayStatement.toLocaleString()} (ตัดเงินจากกระเป๋า "กันเงินจ่าย Shopee SPayLater [KBANK-SPAY]")?`,
+      variant: 'success',
+      confirmText: 'ยืนยันชำระบิล',
+      cancelText: 'ยกเลิก'
+    });
+    if (!isConfirmed) return;
 
     const updatedAccounts = sotData.accounts.map(acc => {
       if (acc.id === 'KBANK-SPAY') {
@@ -182,7 +200,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     });
 
     updateSOTData(nextData);
-    alert(`🎉 ชำระบิล Shopee SPayLater ฿${totalSpayStatement.toLocaleString()} เรียบร้อยแล้ว! ทุกรายการผ่อนถูกตัดไป 1 งวด`);
+    toast(`🎉 ชำระบิล Shopee SPayLater ฿${totalSpayStatement.toLocaleString()} เรียบร้อยแล้ว! ทุกรายการผ่อนถูกตัดไป 1 งวด`, { type: 'success' });
   };
 
   // Open Edit Modal for Long-Term Debts
@@ -216,8 +234,16 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     setShowAddDebtModal(true);
   };
 
-  const handleDeleteDebt = (debtId) => {
-    if (!window.confirm('ต้องการลบรายการผ่อนนี้ใช่หรือไม่?')) return;
+  const handleDeleteDebt = async (debtId) => {
+    const isConfirmed = await modalConfirm({
+      title: 'ยืนยันการลบรายการผ่อน',
+      message: 'ต้องการลบรายการผ่อนสินค้านี้ออกจากระบบใช่หรือไม่?',
+      variant: 'danger',
+      confirmText: 'ลบรายการผ่อน',
+      cancelText: 'ยกเลิก'
+    });
+    if (!isConfirmed) return;
+
     const updatedDebts = debts.filter(d => d.id !== debtId);
     let nextData = { ...sotData, debts: updatedDebts };
     nextData = addAuditEvent(nextData, 'DEBT', debtId, 'DEBT_DELETED');
@@ -226,6 +252,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
       setEditingDebt(null);
       setShowAddDebtModal(false);
     }
+    toast('🗑️ ลบรายการผ่อนเรียบร้อยแล้ว', { type: 'info' });
   };
 
   const handleSaveDebt = (e) => {

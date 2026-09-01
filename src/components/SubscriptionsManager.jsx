@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Tv, Sparkles, AlertCircle, Plus, CheckCircle2, Clock, Users, Edit3, Trash2, BellRing, ExternalLink, Calendar, CreditCard, ShieldAlert } from 'lucide-react';
 import { addAuditEvent } from '../services/storageService';
+import { useModalNotification } from '../context/ModalNotificationContext';
 
 export default function SubscriptionsManager({ sotData, updateSOTData }) {
+  const { confirm: modalConfirm, toast } = useModalNotification();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingSub, setEditingSub] = useState(null);
 
@@ -179,12 +181,21 @@ export default function SubscriptionsManager({ sotData, updateSOTData }) {
     setEditingSub(null);
   };
 
-  const handleDeleteSub = (subId) => {
-    if (!window.confirm('ต้องการลบรายการ Subscription นี้ใช่หรือไม่?')) return;
+  const handleDeleteSub = async (subId) => {
+    const isConfirmed = await modalConfirm({
+      title: 'ยืนยันการลบ Subscription',
+      message: 'ต้องการลบรายการสมาชิกรายเดือนนี้ออกจากระบบใช่หรือไม่?',
+      variant: 'danger',
+      confirmText: 'ลบรายการ',
+      cancelText: 'ยกเลิก'
+    });
+    if (!isConfirmed) return;
+
     const updatedSubs = subscriptions.filter(s => s.id !== subId);
     let nextData = { ...sotData, subscriptions: updatedSubs };
     nextData = addAuditEvent(nextData, 'SUBSCRIPTION', subId, 'SUB_DELETED');
     updateSOTData(nextData);
+    toast('🗑️ ลบรายการสมาชิกเรียบร้อยแล้ว', { type: 'info' });
   };
 
   return (

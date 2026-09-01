@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Bot, 
   Layers, 
@@ -13,7 +13,11 @@ import {
   Tv,
   AlertTriangle,
   RotateCcw,
-  Target
+  Target,
+  Cloud,
+  CheckCircle2,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 
 import PipelineView from './components/PipelineView';
@@ -27,35 +31,89 @@ import SubscriptionsManager from './components/SubscriptionsManager';
 import GoalsAndAnalytics from './components/GoalsAndAnalytics';
 import MonthlyHistoryAndCoach from './components/MonthlyHistoryAndCoach';
 
-import { loadSOTData, saveSOTData, INITIAL_DATA, createZeroedData } from './services/storageService';
+import { 
+  loadSOTData, 
+  saveSOTData, 
+  INITIAL_DATA, 
+  createZeroedData,
+  fetchCloudSOTData,
+  pushCloudSOTData,
+  subscribeToCloudUpdates
+} from './services/storageService';
+import { useModalNotification } from './context/ModalNotificationContext';
 
 export default function App() {
+  const { alert: modalAlert, toast } = useModalNotification();
   const [activeTab, setActiveTab] = useState('pipeline');
   const [sotData, setSotData] = useState(() => loadSOTData());
   const [showResetModal, setShowResetModal] = useState(false);
   const [confirmInput, setConfirmInput] = useState('');
   const [resetMode, setResetMode] = useState('ZERO'); // 'ZERO' or 'SOT_DEFAULT'
+  const [cloudStatus, setCloudStatus] = useState('connecting'); // 'connecting' | 'synced' | 'syncing' | 'error'
+  const [lastSyncTime, setLastSyncTime] = useState(null);
 
-  // Sync state changes to localStorage
-  const updateSOTData = (newData) => {
+  // Manual & Initial Sync with Supabase Cloud
+  const handleCloudSync = useCallback(async (silent = false) => {
+    if (!silent) setCloudStatus('syncing');
+    const res = await fetchCloudSOTData();
+    if (res.success && res.data) {
+      setSotData(res.data);
+      setCloudStatus('synced');
+      setLastSyncTime(new Date());
+    } else {
+      console.warn('Cloud sync issue:', res.error);
+      setCloudStatus('error');
+    }
+  }, []);
+
+  // Initial cloud fetch on mount and listen to realtime changes
+  useEffect(() => {
+    handleCloudSync(false);
+
+    // Subscribe to Realtime Postgres updates across devices
+    const unsubscribe = subscribeToCloudUpdates((newCloudData) => {
+      setSotData(newCloudData);
+      setCloudStatus('synced');
+      setLastSyncTime(new Date());
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [handleCloudSync]);
+
+  // Sync state changes to localStorage and Supabase Cloud
+  const updateSOTData = async (newData) => {
     setSotData(newData);
+    setCloudStatus('syncing');
     saveSOTData(newData);
+    const res = await pushCloudSOTData(newData);
+    if (res.success) {
+      setCloudStatus('synced');
+      setLastSyncTime(new Date());
+    } else {
+      setCloudStatus('error');
+    }
   };
 
-  const handleExecuteReset = (e) => {
+  const handleExecuteReset = async (e) => {
     e.preventDefault();
     if (confirmInput.trim().toUpperCase() !== 'RESET') {
-      alert('⚠️ กรุณาพิมพ์คำว่า RESET ให้ถูกต้องเพื่อยืนยัน');
+      await modalAlert({
+        title: 'ยืนยันไม่ถูกต้อง',
+        message: 'กรุณาพิมพ์คำว่า RESET ให้ถูกต้องเพื่อยืนยันการล้างข้อมูล',
+        variant: 'warning'
+      });
       return;
     }
 
     if (resetMode === 'ZERO') {
       const zeroData = createZeroedData();
-      updateSOTData(zeroData);
-      alert('🧹 รีเซ็ตยอดเงินในทุกบัญชีกลับเป็น 0.00 บาท และล้างรายการหนี้สินเรียบร้อยแล้ว!');
+      await updateSOTData(zeroData);
+      toast('🧹 รีเซ็ตยอดเงินในทุกบัญชีกลับเป็น 0.00 บาท และล้างรายการหนี้สินเรียบร้อยแล้ว!', { type: 'success' });
     } else {
-      updateSOTData(INITIAL_DATA);
-      alert('🔄 รีเซ็ตข้อมูลระบบกลับเป็นค่าตั้งต้น SOT.md เรียบร้อยแล้ว!');
+      await updateSOTData(INITIAL_DATA);
+      toast('🔄 รีเซ็ตข้อมูลระบบกลับเป็นค่าตั้งต้น SOT.md เรียบร้อยแล้ว!', { type: 'success' });
     }
 
     setShowResetModal(false);
@@ -137,25 +195,81 @@ export default function App() {
             </div>
           </div>
 
-          {/* Reset Action Button with Safety Warning */}
-          <button 
-            onClick={() => setShowResetModal(true)}
-            title="ล้างข้อมูลระบบ / รีเซ็ตค่าเริ่มต้น"
-            style={{
-              background: 'rgba(244, 63, 94, 0.08)',
-              border: '1px solid rgba(244, 63, 94, 0.25)',
-              color: 'var(--accent-rose)',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: '0.75rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <RotateCcw size={13} /> รีเซ็ตข้อมูล...
-          </button>
+          {/* Cloud Sync Status & Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            
+            {/* Cloud Status Indicator */}
+            <div 
+              onClick={() => handleCloudSync(false)}
+              title={
+                cloudStatus === 'synced' 
+                  ? `เชื่อมต่อ Supabase Cloud สำเร็จ (ซิงค์ล่าสุด ${lastSyncTime ? lastSyncTime.toLocaleTimeString('th-TH') : 'เมื่อครู่'}) - คลิกเพื่อรีเฟรช`
+                  : cloudStatus === 'syncing' 
+                    ? 'กำลังบันทึก/ดึงข้อมูลจาก Cloud...' 
+                    : cloudStatus === 'connecting'
+                      ? 'กำลังเชื่อมต่อ Cloud...'
+                      : 'ไม่สามารถติดต่อ Supabase ได้ (ใช้ข้อมูลออฟไลน์ในเครื่องชั่วคราว) - คลิกเพื่อลองใหม่'
+              }
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                background: cloudStatus === 'synced' 
+                  ? 'rgba(16, 185, 129, 0.1)' 
+                  : cloudStatus === 'syncing' || cloudStatus === 'connecting'
+                    ? 'rgba(6, 182, 212, 0.1)' 
+                    : 'rgba(244, 63, 94, 0.1)',
+                border: `1px solid ${
+                  cloudStatus === 'synced' 
+                    ? 'rgba(16, 185, 129, 0.3)' 
+                    : cloudStatus === 'syncing' || cloudStatus === 'connecting'
+                      ? 'rgba(6, 182, 212, 0.3)' 
+                      : 'rgba(244, 63, 94, 0.3)'
+                }`,
+                color: cloudStatus === 'synced' 
+                  ? 'var(--accent-emerald)' 
+                  : cloudStatus === 'syncing' || cloudStatus === 'connecting'
+                    ? 'var(--accent-cyan)' 
+                    : 'var(--accent-rose)',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              {cloudStatus === 'synced' && <CheckCircle2 size={13} />}
+              {(cloudStatus === 'syncing' || cloudStatus === 'connecting') && <Loader2 size={13} className="spin-slow" />}
+              {cloudStatus === 'error' && <AlertCircle size={13} />}
+              
+              <span style={{ fontWeight: 600 }}>
+                {cloudStatus === 'synced' && '☁️ Cloud ซิงค์แล้ว'}
+                {cloudStatus === 'syncing' && '☁️ กำลังซิงค์...'}
+                {cloudStatus === 'connecting' && '☁️ กำลังเชื่อมต่อ...'}
+                {cloudStatus === 'error' && '⚠️ Cloud ออฟไลน์'}
+              </span>
+            </div>
+
+            {/* Reset Action Button with Safety Warning */}
+            <button 
+              onClick={() => setShowResetModal(true)}
+              title="ล้างข้อมูลระบบ / รีเซ็ตค่าเริ่มต้น"
+              style={{
+                background: 'rgba(244, 63, 94, 0.08)',
+                border: '1px solid rgba(244, 63, 94, 0.25)',
+                color: 'var(--accent-rose)',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <RotateCcw size={13} /> รีเซ็ตข้อมูล...
+            </button>
+          </div>
 
         </div>
       </header>

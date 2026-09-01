@@ -1,6 +1,8 @@
-// Storage Service - Safe Non-Destructive Persistent Storage with Zeroed Reset Template
+// Storage Service - Safe Non-Destructive Persistent Storage with Supabase Cloud Sync
+import { supabase } from './supabaseClient';
 
 const SOT_STORAGE_KEY = 'PERSONAL_FINANCE_SOT_V2';
+const CLOUD_RECORD_ID = 'CURRENT_SOT';
 
 export const INITIAL_DATA = {
   accounts: [
@@ -460,39 +462,43 @@ export const createZeroedData = () => {
   };
 };
 
-// Safe Non-Destructive Loader (Ensures Sony XM5 is mapped to Phrae)
+// Helper: Normalize / Sanitise SOT Object
+export const sanitizeSOTData = (parsed) => {
+  if (!parsed || typeof parsed !== 'object') return INITIAL_DATA;
+
+  let updatedDebts = parsed.debts || INITIAL_DATA.debts;
+  if (updatedDebts) {
+    updatedDebts = updatedDebts.map(d => {
+      if (d.id === 'SPAY-01' || d.itemName?.includes('Sony WH-1000XM5')) {
+        return {
+          ...d,
+          owner: 'พี่แพร',
+          payerType: 'THEY_PAY',
+          note: 'พี่แพรผ่อน เรากดให้ผ่าน SPayLater (พี่แพรจ่ายคืนเรางวดละ ฿2,370.52)'
+        };
+      }
+      return d;
+    });
+  }
+
+  return {
+    ...INITIAL_DATA,
+    ...parsed,
+    accounts: parsed.accounts || INITIAL_DATA.accounts,
+    debts: updatedDebts,
+    bnplItems: parsed.bnplItems || INITIAL_DATA.bnplItems,
+    subscriptions: parsed.subscriptions || INITIAL_DATA.subscriptions,
+    familySettlements: parsed.familySettlements || INITIAL_DATA.familySettlements
+  };
+};
+
+// Safe Local Loader (Fast Initial Render)
 export const loadSOTData = () => {
   try {
     const raw = localStorage.getItem(SOT_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-
-      // Smart check: Make sure Sony XM5 is mapped to Phrae in debts and Family Hub
-      let updatedDebts = parsed.debts || INITIAL_DATA.debts;
-      if (updatedDebts) {
-        updatedDebts = updatedDebts.map(d => {
-          if (d.id === 'SPAY-01' || d.itemName?.includes('Sony WH-1000XM5')) {
-            return {
-              ...d,
-              owner: 'พี่แพร',
-              payerType: 'THEY_PAY',
-              note: 'พี่แพรผ่อน เรากดให้ผ่าน SPayLater (พี่แพรจ่ายคืนเรางวดละ ฿2,370.52)'
-            };
-          }
-          return d;
-        });
-      }
-
-      const safeData = {
-        ...INITIAL_DATA,
-        ...parsed,
-        accounts: parsed.accounts || INITIAL_DATA.accounts,
-        debts: updatedDebts,
-        bnplItems: parsed.bnplItems || INITIAL_DATA.bnplItems,
-        subscriptions: parsed.subscriptions || INITIAL_DATA.subscriptions,
-        familySettlements: parsed.familySettlements || INITIAL_DATA.familySettlements
-      };
-      return safeData;
+      return sanitizeSOTData(parsed);
     }
   } catch (e) {
     console.error('Failed to load SOT data from localStorage', e);
@@ -500,11 +506,109 @@ export const loadSOTData = () => {
   return INITIAL_DATA;
 };
 
+// Push to Supabase Cloud
+export const pushCloudSOTData = async (data) => {
+  try {
+    const { error } = await supabase
+      .from('app_state')
+      .upsert({
+        id: CLOUD_RECORD_ID,
+        data: data,
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.warn('Supabase Cloud Sync push warning:', error.message);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (e) {
+    console.error('Supabase Cloud Sync push exception:', e);
+    return { success: false, error: e.message };
+  }
+};
+
+// Fetch from Supabase Cloud
+export const fetchCloudSOTData = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('data, updated_at')
+      .eq('id', CLOUD_RECORD_ID)
+      .single();
+
+    if (error) {
+      // If table empty, seed current SOT to Cloud
+      if (error.code === 'PGRST116') {
+        const localData = loadSOTData();
+        await pushCloudSOTData(localData);
+        return { success: true, data: localData, seeded: true };
+      }
+      return { success: false, error: error.message };
+    }
+
+    if (data && data.data) {
+      const sanitized = sanitizeSOTData(data.data);
+      // Update local storage cache
+      try {
+        localStorage.setItem(SOT_STORAGE_KEY, JSON.stringify(sanitized));
+      } catch (err) {
+        console.error('Error saving cached cloud data to localStorage', err);
+      }
+      return { success: true, data: sanitized, updatedAt: data.updated_at };
+    }
+    return { success: false, error: 'No data returned' };
+  } catch (e) {
+    console.error('Supabase Cloud Sync fetch exception:', e);
+    return { success: false, error: e.message };
+  }
+};
+
+// Save SOT data to both LocalStorage and Supabase Cloud
 export const saveSOTData = (data) => {
   try {
     localStorage.setItem(SOT_STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
     console.error('Failed to save SOT data to localStorage', e);
+  }
+
+  // Asynchronous background Cloud sync
+  pushCloudSOTData(data);
+};
+
+// Realtime Cloud Subscription
+export const subscribeToCloudUpdates = (onUpdate) => {
+  try {
+    const channel = supabase
+      .channel('app_state_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'app_state',
+          filter: `id=eq.${CLOUD_RECORD_ID}`
+        },
+        (payload) => {
+          if (payload.new && payload.new.data) {
+            const sanitized = sanitizeSOTData(payload.new.data);
+            try {
+              localStorage.setItem(SOT_STORAGE_KEY, JSON.stringify(sanitized));
+            } catch (err) {
+              console.error(err);
+            }
+            onUpdate(sanitized);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  } catch (e) {
+    console.error('Failed to subscribe to Supabase Realtime', e);
+    return () => {};
   }
 };
 

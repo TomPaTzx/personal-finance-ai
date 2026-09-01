@@ -22,8 +22,10 @@ import {
   Edit3 
 } from 'lucide-react';
 import { addAuditEvent } from '../services/storageService';
+import { useModalNotification } from '../context/ModalNotificationContext';
 
 export default function GoalsAndAnalytics({ sotData, updateSOTData }) {
+  const { confirm: modalConfirm, toast } = useModalNotification();
   const [showAddGoalModal, setShowAddGoalModal] = useState(false);
   const [goalName, setGoalName] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
@@ -148,13 +150,22 @@ export default function GoalsAndAnalytics({ sotData, updateSOTData }) {
     setMonthlyContribution('');
   };
 
-  const handleDeleteGoal = (goalId) => {
-    if (!window.confirm('ต้องการลบเป้าหมายนี้ใช่หรือไม่?')) return;
+  const handleDeleteGoal = async (goalId) => {
+    const isConfirmed = await modalConfirm({
+      title: 'ยืนยันการลบเป้าหมาย',
+      message: 'ต้องการลบเป้าหมายการเงินนี้ออกจากระบบใช่หรือไม่?',
+      variant: 'danger',
+      confirmText: 'ลบเป้าหมาย',
+      cancelText: 'ยกเลิก'
+    });
+    if (!isConfirmed) return;
+
     const currentGoals = sotData.goals || goals;
     const updatedGoals = currentGoals.filter(g => g.id !== goalId);
     let nextData = { ...sotData, goals: updatedGoals };
     nextData = addAuditEvent(nextData, 'GOAL', goalId, 'GOAL_DELETED');
     updateSOTData(nextData);
+    toast('🗑️ ลบเป้าหมายเรียบร้อยแล้ว', { type: 'info' });
   };
 
   return (
