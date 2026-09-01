@@ -7,17 +7,24 @@ import {
   Receipt, 
   TrendingUp, 
   FileCode2, 
-  Sparkles,
-  RefreshCw,
-  Users,
-  Tv,
-  AlertTriangle,
-  RotateCcw,
-  Target,
-  Cloud,
-  CheckCircle2,
-  AlertCircle,
-  Loader2
+  Sparkles, 
+  RefreshCw, 
+  Users, 
+  Tv, 
+  AlertTriangle, 
+  RotateCcw, 
+  Target, 
+  Cloud, 
+  CheckCircle2, 
+  AlertCircle, 
+  Loader2,
+  Menu,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  ShieldCheck,
+  Zap,
+  Activity
 } from 'lucide-react';
 
 import PipelineView from './components/PipelineView';
@@ -55,6 +62,38 @@ export default function App() {
   const [resetMode, setResetMode] = useState('ZERO'); // 'ZERO' or 'SOT_DEFAULT'
   const [cloudStatus, setCloudStatus] = useState('connecting'); // 'connecting' | 'synced' | 'syncing' | 'error'
   const [lastSyncTime, setLastSyncTime] = useState(null);
+
+  // Sidebar Layout state
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  const NAV_GROUPS = [
+    {
+      title: 'ศูนย์จัดการเงิน (Core Hub)',
+      items: [
+        { id: 'pipeline', label: 'ปล่อยของ & ปรึกษา', icon: <Layers size={18} className="nav-icon" />, badge: 'AI' },
+        { id: 'accounts', label: 'จัดการกระเป๋าเงิน', icon: <Wallet size={18} className="nav-icon" /> },
+        { id: 'debts', label: 'หนี้สิน & ผ่อนของ', icon: <CreditCard size={18} className="nav-icon" /> },
+        { id: 'scanner', label: 'สแกนสลิป & บิล', icon: <Receipt size={18} className="nav-icon" />, badge: 'OCR' }
+      ]
+    },
+    {
+      title: 'โค้ช & วางแผน (Coach & Goals)',
+      items: [
+        { id: 'coach', label: 'The Money Coach', icon: <TrendingUp size={18} className="nav-icon" />, badge: 'Coach' },
+        { id: 'goals', label: 'เป้าหมายการเงิน', icon: <Target size={18} className="nav-icon" /> },
+        { id: 'networth', label: 'สรุปความมั่งคั่ง', icon: <Activity size={18} className="nav-icon" /> }
+      ]
+    },
+    {
+      title: 'ครอบครัว & บริการ (Life & Family)',
+      items: [
+        { id: 'family', label: 'เคลียร์บิลครอบครัว', icon: <Users size={18} className="nav-icon" /> },
+        { id: 'subs', label: 'สมาชิกรายเดือน', icon: <Tv size={18} className="nav-icon" /> },
+        { id: 'scaffold', label: 'เอกสารระบบ', icon: <FileCode2 size={18} className="nav-icon" /> }
+      ]
+    }
+  ];
 
   // Manual & Initial Sync with Supabase Cloud (with Conflict Guard)
   const handleCloudSync = useCallback(async (silent = false) => {
@@ -176,7 +215,7 @@ export default function App() {
       toast('🧹 รีเซ็ตยอดเงินในทุกบัญชีกลับเป็น 0.00 บาท และล้างรายการหนี้สินเรียบร้อยแล้ว!', { type: 'success' });
     } else {
       await updateSOTData(INITIAL_DATA);
-      toast('🔄 รีเซ็ตข้อมูลระบบกลับเป็นค่าตั้งต้น SOT.md เรียบร้อยแล้ว!', { type: 'success' });
+      toast('🔄 รีเซ็ตข้อมูลระบบกลับเป็นค่าตั้งต้นเรียบร้อยแล้ว!', { type: 'success' });
     }
 
     setShowResetModal(false);
@@ -193,173 +232,339 @@ export default function App() {
   // Real Personal Net Worth
   const netWorth = totalAssets - myTotalDebts;
 
+  // Active tab helper
+  const allTabs = NAV_GROUPS.flatMap(g => g.items);
+  const activeTabMeta = allTabs.find(t => t.id === activeTab) || allTabs[0];
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg-primary)' }}>
       
-      {/* Top Navigation Bar */}
-      <header className="glass-panel" style={{ 
-        position: 'sticky', 
-        top: 0, 
-        zIndex: 100, 
-        borderRadius: 0, 
-        borderTop: 'none', 
-        borderLeft: 'none', 
-        borderRight: 'none',
-        padding: '12px 24px'
-      }}>
-        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-          
-          {/* Logo & Assistant Identity */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      {/* Mobile Drawer Overlay */}
+      {isMobileSidebarOpen && (
+        <div 
+          onClick={() => setIsMobileSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 998
+          }}
+        />
+      )}
+
+      {/* Sidebar Navigation */}
+      <aside className={`sidebar-container ${isSidebarCollapsed ? 'sidebar-collapsed' : ''} ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
+        
+        {/* Brand Header */}
+        <div style={{
+          padding: isSidebarCollapsed ? '16px 10px' : '20px 18px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', overflow: 'hidden' }}>
             <div style={{ 
-              width: '38px', 
-              height: '38px', 
-              borderRadius: '10px', 
-              background: 'linear-gradient(135deg, #0284c7, #06b6d4)', 
+              width: '40px', 
+              height: '40px', 
+              borderRadius: '12px', 
+              background: 'linear-gradient(135deg, #059669, #06b6d4)', 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center',
-              boxShadow: '0 0 12px rgba(6, 182, 212, 0.4)'
+              boxShadow: '0 0 16px rgba(16, 185, 129, 0.4)',
+              flexShrink: 0
             }}>
               <Bot size={22} color="#fff" />
             </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.1rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff' }}>
-                  JASON
-                </span>
-                <span className="badge badge-cyan" style={{ fontSize: '0.65rem' }}>
-                  AI Financial 1st AD
+
+            {!isSidebarCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '1.15rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff' }}>
+                    สมหมาย
+                  </span>
+                  <span className="badge badge-emerald" style={{ fontSize: '0.62rem', padding: '2px 6px' }}>
+                    SOMMAI
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  เลขาการเงิน & ผู้จัดการความมั่งคั่ง
                 </span>
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Personal Finance & Decision Pipeline
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* Quick Metrics Capsule */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '18px', background: 'rgba(0, 0, 0, 0.3)', padding: '6px 16px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-subtle)' }}>
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>เงินสดจริง: </span>
-              <strong style={{ color: 'var(--accent-cyan)', fontSize: '0.85rem' }}>฿{totalAssets.toLocaleString()}</strong>
-            </div>
-            <div style={{ width: '1px', height: '14px', background: 'var(--border-subtle)' }}></div>
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>หนี้ตัวเองจริง: </span>
-              <strong style={{ color: 'var(--accent-rose)', fontSize: '0.85rem' }}>฿{myTotalDebts.toLocaleString()}</strong>
-            </div>
-            <div style={{ width: '1px', height: '14px', background: 'var(--border-subtle)' }}></div>
-            <div>
-              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ความมั่งคั่งสุทธิ: </span>
-              <strong style={{ color: netWorth >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)', fontSize: '0.85rem' }}>
-                ฿{netWorth.toLocaleString()}
-              </strong>
-            </div>
-          </div>
-
-          {/* Cloud Sync Status & Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            
-            {/* Cloud Status Indicator & Quick Manager */}
-            <div 
-              onClick={() => setShowCloudModal(true)}
-              title="คลิกเพื่อเปิดศูนย์จัดการ Cloud Sync & กู้คืนข้อมูล"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-full)',
-                fontSize: '0.75rem',
-                cursor: 'pointer',
-                background: cloudStatus === 'synced' 
-                  ? 'rgba(16, 185, 129, 0.1)' 
-                  : cloudStatus === 'syncing' || cloudStatus === 'connecting'
-                    ? 'rgba(6, 182, 212, 0.1)' 
-                    : 'rgba(244, 63, 94, 0.1)',
-                border: `1px solid ${
-                  cloudStatus === 'synced' 
-                    ? 'rgba(16, 185, 129, 0.3)' 
-                    : cloudStatus === 'syncing' || cloudStatus === 'connecting'
-                      ? 'rgba(6, 182, 212, 0.3)' 
-                      : 'rgba(244, 63, 94, 0.3)'
-                }`,
-                color: cloudStatus === 'synced' 
-                  ? 'var(--accent-emerald)' 
-                  : cloudStatus === 'syncing' || cloudStatus === 'connecting'
-                    ? 'var(--accent-cyan)' 
-                    : 'var(--accent-rose)',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {cloudStatus === 'synced' && <CheckCircle2 size={13} />}
-              {(cloudStatus === 'syncing' || cloudStatus === 'connecting') && <Loader2 size={13} className="spin-slow" />}
-              {cloudStatus === 'error' && <AlertCircle size={13} />}
-              
-              <span style={{ fontWeight: 600 }}>
-                {cloudStatus === 'synced' && '☁️ Cloud ซิงค์แล้ว (จัดการ)'}
-                {cloudStatus === 'syncing' && '☁️ กำลังซิงค์...'}
-                {cloudStatus === 'connecting' && '☁️ กำลังเชื่อมต่อ...'}
-                {cloudStatus === 'error' && '⚠️ Cloud ออฟไลน์'}
-              </span>
-            </div>
-
-            {/* Reset Action Button with Safety Warning */}
+          {!isSidebarCollapsed && (
             <button 
-              onClick={() => setShowResetModal(true)}
-              title="ล้างข้อมูลระบบ / รีเซ็ตค่าเริ่มต้น"
+              onClick={() => setIsSidebarCollapsed(true)}
               style={{
-                background: 'rgba(244, 63, 94, 0.08)',
-                border: '1px solid rgba(244, 63, 94, 0.25)',
-                color: 'var(--accent-rose)',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
                 cursor: 'pointer',
+                padding: '4px',
+                borderRadius: 'var(--radius-sm)'
+              }}
+              title="ย่อแถบเมนู"
+            >
+              <ChevronLeft size={18} />
+            </button>
+          )}
+        </div>
+
+        {/* Collapsed Expand Toggle Button */}
+        {isSidebarCollapsed && (
+          <div style={{ padding: '8px', display: 'flex', justifyContent: 'center' }}>
+            <button 
+              onClick={() => setIsSidebarCollapsed(false)}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--accent-cyan)',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: 'var(--radius-sm)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px'
+                justifyContent: 'center',
+                width: '32px',
+                height: '32px'
               }}
+              title="ขยายแถบเมนู"
             >
-              <RotateCcw size={13} /> รีเซ็ตข้อมูล...
+              <ChevronRight size={18} />
             </button>
           </div>
+        )}
 
-        </div>
-      </header>
+        {/* Navigation List */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {NAV_GROUPS.map((group, gIdx) => (
+            <div key={gIdx} style={{ marginBottom: '8px' }}>
+              {!isSidebarCollapsed && (
+                <div className="sidebar-group-title">
+                  {group.title}
+                </div>
+              )}
 
-      {/* Main Content Area */}
-      <div style={{ maxWidth: '1400px', width: '100%', margin: '0 auto', padding: '24px', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        
-        {/* Navigation Tabs Bar */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
-          {[
-            { id: 'pipeline', label: '🚀 ปล่อยของ & วิเคราะห์ (Pipeline)', icon: <Layers size={18} /> },
-            { id: 'coach', label: '📜 ปิดงบย้อนหลัง & Money Coach', icon: <TrendingUp size={18} /> },
-            { id: 'goals', label: '🎯 เป้าหมาย & วิเคราะห์หมวดรายจ่าย (Goals)', icon: <Target size={18} /> },
-            { id: 'family', label: '👨‍👩‍👧‍👦 เคลียร์บิลครอบครัว (แม่/พี่แพร/แจง)', icon: <Users size={18} /> },
-            { id: 'subs', label: '📺 สมาชิกรายเดือน (Subscriptions)', icon: <Tv size={18} /> },
-            { id: 'networth', label: '📊 แดชบอร์ดความมั่งคั่ง (Net Worth)', icon: <TrendingUp size={18} /> },
-            { id: 'accounts', label: '💳 จัดการกระเป๋าเงิน (Accounts)', icon: <Wallet size={18} /> },
-            { id: 'debts', label: '🛍️ หนี้สิน & ผ่อนรายชิ้น (Debt Tracker)', icon: <CreditCard size={18} /> },
-            { id: 'scanner', label: '🧾 สแกนสลิป / ใบเสร็จ (Slip OCR)', icon: <Receipt size={18} /> },
-            { id: 'scaffold', label: '📚 Memory Scaffold (8 เอกสาร)', icon: <FileCode2 size={18} /> }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`btn ${activeTab === tab.id ? 'btn-primary' : 'btn-outline'}`}
-              style={{ fontSize: '0.9rem', padding: '8px 16px' }}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {group.items.map(item => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setIsMobileSidebarOpen(false);
+                      }}
+                      className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+                      title={isSidebarCollapsed ? item.label : undefined}
+                      style={{
+                        justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                        padding: isSidebarCollapsed ? '12px 0' : '10px 14px'
+                      }}
+                    >
+                      {item.icon}
+                      {!isSidebarCollapsed && (
+                        <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{item.label}</span>
+                      )}
+                      {!isSidebarCollapsed && item.badge && (
+                        <span 
+                          className={`badge ${isActive ? 'badge-cyan' : ''}`}
+                          style={{
+                            fontSize: '0.62rem',
+                            padding: '2px 6px',
+                            background: isActive ? 'rgba(6, 182, 212, 0.25)' : 'rgba(255, 255, 255, 0.06)',
+                            color: isActive ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                            border: 'none'
+                          }}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           ))}
         </div>
 
-        {/* Tab Content Rendering */}
-        <main style={{ marginTop: '8px' }}>
+        {/* Sidebar Footer Controls */}
+        <div style={{
+          padding: isSidebarCollapsed ? '12px 8px' : '16px 14px',
+          borderTop: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          background: 'rgba(0, 0, 0, 0.2)'
+        }}>
+          {/* Cloud Sync Capsule */}
+          <div 
+            onClick={() => setShowCloudModal(true)}
+            title="คลิกเพื่อจัดการ Cloud Sync & กู้คืนข้อมูล"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '0.75rem',
+              cursor: 'pointer',
+              background: cloudStatus === 'synced' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(6, 182, 212, 0.12)',
+              border: `1px solid ${cloudStatus === 'synced' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(6, 182, 212, 0.3)'}`,
+              color: cloudStatus === 'synced' ? 'var(--accent-emerald)' : 'var(--accent-cyan)',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            {cloudStatus === 'synced' && <CheckCircle2 size={15} />}
+            {cloudStatus === 'syncing' && <Loader2 size={15} className="spin-slow" />}
+            {cloudStatus === 'error' && <AlertCircle size={15} color="var(--accent-rose)" />}
+            {!isSidebarCollapsed && (
+              <span style={{ fontWeight: 600, flex: 1, whiteSpace: 'nowrap' }}>
+                {cloudStatus === 'synced' && 'Cloud ซิงค์แล้ว'}
+                {cloudStatus === 'syncing' && 'กำลังซิงค์...'}
+                {cloudStatus === 'error' && 'Cloud ออฟไลน์'}
+              </span>
+            )}
+          </div>
+
+          {/* Quick Reset */}
+          {!isSidebarCollapsed ? (
+            <button 
+              onClick={() => setShowResetModal(true)}
+              style={{
+                background: 'rgba(244, 63, 94, 0.06)',
+                border: '1px solid rgba(244, 63, 94, 0.2)',
+                color: 'var(--accent-rose)',
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.72rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                width: '100%'
+              }}
+            >
+              <RotateCcw size={12} /> รีเซ็ตข้อมูลระบบ...
+            </button>
+          ) : (
+            <button 
+              onClick={() => setShowResetModal(true)}
+              title="รีเซ็ตข้อมูลระบบ"
+              style={{
+                background: 'rgba(244, 63, 94, 0.08)',
+                border: '1px solid rgba(244, 63, 94, 0.2)',
+                color: 'var(--accent-rose)',
+                padding: '6px',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <RotateCcw size={14} />
+            </button>
+          )}
+        </div>
+
+      </aside>
+
+      {/* Main Workspace (Right Side) */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowX: 'hidden' }}>
+        
+        {/* Top Floating App Bar */}
+        <header className="glass-panel" style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
+          borderRadius: 0,
+          borderTop: 'none',
+          borderLeft: 'none',
+          borderRight: 'none',
+          padding: '12px 24px',
+          background: 'rgba(10, 15, 26, 0.85)'
+        }}>
+          <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+            
+            {/* Left: Mobile Toggle & Page Title */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <button 
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="btn btn-outline"
+                style={{ display: 'none', padding: '6px 10px' }}
+                id="mobile-menu-btn"
+              >
+                <Menu size={18} />
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '10px',
+                  background: 'rgba(6, 182, 212, 0.12)',
+                  border: '1px solid rgba(6, 182, 212, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  {activeTabMeta.icon}
+                </div>
+                <div>
+                  <h1 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff', margin: 0 }}>
+                    {activeTabMeta.label}
+                  </h1>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    สมหมาย (Sommai Money) • เลขาการเงินส่วนตัว
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Realtime Financial Health Capsule */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                background: 'rgba(0, 0, 0, 0.4)',
+                padding: '6px 16px',
+                borderRadius: 'var(--radius-full)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.8rem'
+              }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>เงินสดจริง: </span>
+                  <strong style={{ color: 'var(--accent-cyan)' }}>฿{totalAssets.toLocaleString()}</strong>
+                </div>
+                <div style={{ width: '1px', height: '14px', background: 'var(--border-subtle)' }}></div>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>หนี้ตัวเองจริง: </span>
+                  <strong style={{ color: 'var(--accent-rose)' }}>฿{myTotalDebts.toLocaleString()}</strong>
+                </div>
+                <div style={{ width: '1px', height: '14px', background: 'var(--border-subtle)' }}></div>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ความมั่งคั่งสุทธิ: </span>
+                  <strong style={{ color: netWorth >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                    ฿{netWorth.toLocaleString()}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </header>
+
+        {/* Dynamic Page Content */}
+        <main style={{ maxWidth: '1400px', width: '100%', margin: '0 auto', padding: '24px', flex: 1 }}>
           {activeTab === 'pipeline' && <PipelineView sotData={sotData} updateSOTData={updateSOTData} />}
           {activeTab === 'coach' && <MonthlyHistoryAndCoach sotData={sotData} updateSOTData={updateSOTData} />}
           {activeTab === 'goals' && <GoalsAndAnalytics sotData={sotData} updateSOTData={updateSOTData} />}
@@ -372,12 +577,12 @@ export default function App() {
           {activeTab === 'scaffold' && <ScaffoldDocViewer />}
         </main>
 
-      </div>
+        {/* Footer */}
+        <footer style={{ borderTop: '1px solid var(--border-subtle)', padding: '16px 24px', textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          สมหมาย (Sommai Money AI) • ระบบวางแผนการเงิน ล็อกบิลล่วงหน้า & บันทึกสลิปคลาวด์อัตโนมัติ
+        </footer>
 
-      {/* Footer */}
-      <footer style={{ borderTop: '1px solid var(--border-subtle)', padding: '16px 24px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-        Personal Finance AI Consultant • Armed with 8-Doc Memory Scaffold & Dual Advisor Engine
-      </footer>
+      </div>
 
       {/* Accidental Reset Prevention Modal */}
       {showResetModal && (
