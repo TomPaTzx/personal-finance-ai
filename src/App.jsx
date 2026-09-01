@@ -30,6 +30,7 @@ import FamilySettlementHub from './components/FamilySettlementHub';
 import SubscriptionsManager from './components/SubscriptionsManager';
 import GoalsAndAnalytics from './components/GoalsAndAnalytics';
 import MonthlyHistoryAndCoach from './components/MonthlyHistoryAndCoach';
+import CloudSyncModal from './components/CloudSyncModal';
 
 import { 
   loadSOTData, 
@@ -47,6 +48,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('pipeline');
   const [sotData, setSotData] = useState(() => loadSOTData());
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showCloudModal, setShowCloudModal] = useState(false);
   const [confirmInput, setConfirmInput] = useState('');
   const [resetMode, setResetMode] = useState('ZERO'); // 'ZERO' or 'SOT_DEFAULT'
   const [cloudStatus, setCloudStatus] = useState('connecting'); // 'connecting' | 'synced' | 'syncing' | 'error'
@@ -198,18 +200,10 @@ export default function App() {
           {/* Cloud Sync Status & Actions */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             
-            {/* Cloud Status Indicator */}
+            {/* Cloud Status Indicator & Quick Manager */}
             <div 
-              onClick={() => handleCloudSync(false)}
-              title={
-                cloudStatus === 'synced' 
-                  ? `เชื่อมต่อ Supabase Cloud สำเร็จ (ซิงค์ล่าสุด ${lastSyncTime ? lastSyncTime.toLocaleTimeString('th-TH') : 'เมื่อครู่'}) - คลิกเพื่อรีเฟรช`
-                  : cloudStatus === 'syncing' 
-                    ? 'กำลังบันทึก/ดึงข้อมูลจาก Cloud...' 
-                    : cloudStatus === 'connecting'
-                      ? 'กำลังเชื่อมต่อ Cloud...'
-                      : 'ไม่สามารถติดต่อ Supabase ได้ (ใช้ข้อมูลออฟไลน์ในเครื่องชั่วคราว) - คลิกเพื่อลองใหม่'
-              }
+              onClick={() => setShowCloudModal(true)}
+              title="คลิกเพื่อเปิดศูนย์จัดการ Cloud Sync & กู้คืนข้อมูล"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -243,7 +237,7 @@ export default function App() {
               {cloudStatus === 'error' && <AlertCircle size={13} />}
               
               <span style={{ fontWeight: 600 }}>
-                {cloudStatus === 'synced' && '☁️ Cloud ซิงค์แล้ว'}
+                {cloudStatus === 'synced' && '☁️ Cloud ซิงค์แล้ว (จัดการ)'}
                 {cloudStatus === 'syncing' && '☁️ กำลังซิงค์...'}
                 {cloudStatus === 'connecting' && '☁️ กำลังเชื่อมต่อ...'}
                 {cloudStatus === 'error' && '⚠️ Cloud ออฟไลน์'}
@@ -457,6 +451,17 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Cloud Sync & Backup Manager Modal */}
+      <CloudSyncModal
+        isOpen={showCloudModal}
+        onClose={() => setShowCloudModal(false)}
+        sotData={sotData}
+        updateSOTData={updateSOTData}
+        cloudStatus={cloudStatus}
+        lastSyncTime={lastSyncTime}
+        onRefreshCloud={handleCloudSync}
+      />
 
     </div>
   );
