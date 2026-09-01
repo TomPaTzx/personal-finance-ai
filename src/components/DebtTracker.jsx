@@ -202,16 +202,28 @@ export default function DebtTracker({ sotData, updateSOTData }) {
   const handleOpenAdd = () => {
     setEditingDebt(null);
     setItemName('');
-    setOwner('แจง');
+    setOwner('ตัวเอง');
     setTotalAmount('');
     setMonthlyPayment('');
     setTotalInstallments('10');
     setRemainingInstallments('10');
     setCategory('GADGET');
-    setLinkedAccountId('CARD-JAENG');
+    setLinkedAccountId('KBANK-SPAY');
     setPayerType('WE_PAY');
     setSyncWithFamily(true);
     setShowAddDebtModal(true);
+  };
+
+  const handleDeleteDebt = (debtId) => {
+    if (!window.confirm('ต้องการลบรายการผ่อนนี้ใช่หรือไม่?')) return;
+    const updatedDebts = debts.filter(d => d.id !== debtId);
+    let nextData = { ...sotData, debts: updatedDebts };
+    nextData = addAuditEvent(nextData, 'DEBT', debtId, 'DEBT_DELETED');
+    updateSOTData(nextData);
+    if (editingDebt?.id === debtId) {
+      setEditingDebt(null);
+      setShowAddDebtModal(false);
+    }
   };
 
   const handleSaveDebt = (e) => {
@@ -225,8 +237,6 @@ export default function DebtTracker({ sotData, updateSOTData }) {
 
     let updatedDebts = [...debts];
     let updatedFamily = [...(sotData.familySettlements || [])];
-
-    const isBorrowedCard = linkedAccountId.startsWith('CARD-');
 
     if (editingDebt) {
       updatedDebts = updatedDebts.map(d => {
@@ -254,18 +264,28 @@ export default function DebtTracker({ sotData, updateSOTData }) {
         let personId = null;
         let settlementType = 'WE_OWE';
 
-        if (linkedAccountId === 'CARD-JAENG' || (owner === 'แจง' && payerType === 'WE_PAY')) {
-          personId = 'PERSON-JAENG';
-          settlementType = 'WE_OWE'; // เราผ่อนให้แจง = เราต้องโอนคืนแจง
-        } else if (linkedAccountId === 'CARD-MOM' || (owner === 'แม่' && payerType === 'WE_PAY')) {
-          personId = 'PERSON-MOM';
-          settlementType = 'WE_OWE';
-        } else if (linkedAccountId === 'CARD-PHRAE' || (owner === 'พี่แพร' && payerType === 'WE_PAY')) {
-          personId = 'PERSON-PHRAE';
-          settlementType = 'WE_OWE';
-        } else if (owner === 'พี่แพร' && payerType === 'THEY_PAY') {
-          personId = 'PERSON-PHRAE';
-          settlementType = 'THEY_OWE'; // พี่แพรผ่อนกับเรา = พี่แพรจ่ายคืนเรา
+        if (payerType === 'WE_PAY') {
+          if (linkedAccountId === 'CARD-JAENG') {
+            personId = 'PERSON-JAENG';
+            settlementType = 'WE_OWE';
+          } else if (linkedAccountId === 'CARD-MOM') {
+            personId = 'PERSON-MOM';
+            settlementType = 'WE_OWE';
+          } else if (linkedAccountId === 'CARD-PHRAE') {
+            personId = 'PERSON-PHRAE';
+            settlementType = 'WE_OWE';
+          }
+        } else if (payerType === 'THEY_PAY') {
+          if (owner === 'แจง') {
+            personId = 'PERSON-JAENG';
+            settlementType = 'THEY_OWE';
+          } else if (owner === 'แม่') {
+            personId = 'PERSON-MOM';
+            settlementType = 'THEY_OWE';
+          } else if (owner === 'พี่แพร' || owner.includes('แพร')) {
+            personId = 'PERSON-PHRAE';
+            settlementType = 'THEY_OWE';
+          }
         }
 
         if (personId) {
@@ -323,18 +343,28 @@ export default function DebtTracker({ sotData, updateSOTData }) {
         let personId = null;
         let settlementType = 'WE_OWE';
 
-        if (linkedAccountId === 'CARD-JAENG' || (owner === 'แจง' && payerType === 'WE_PAY')) {
-          personId = 'PERSON-JAENG';
-          settlementType = 'WE_OWE';
-        } else if (linkedAccountId === 'CARD-MOM' || (owner === 'แม่' && payerType === 'WE_PAY')) {
-          personId = 'PERSON-MOM';
-          settlementType = 'WE_OWE';
-        } else if (linkedAccountId === 'CARD-PHRAE' || (owner === 'พี่แพร' && payerType === 'WE_PAY')) {
-          personId = 'PERSON-PHRAE';
-          settlementType = 'WE_OWE';
-        } else if (owner === 'พี่แพร' && payerType === 'THEY_PAY') {
-          personId = 'PERSON-PHRAE';
-          settlementType = 'THEY_OWE';
+        if (payerType === 'WE_PAY') {
+          if (linkedAccountId === 'CARD-JAENG') {
+            personId = 'PERSON-JAENG';
+            settlementType = 'WE_OWE';
+          } else if (linkedAccountId === 'CARD-MOM') {
+            personId = 'PERSON-MOM';
+            settlementType = 'WE_OWE';
+          } else if (linkedAccountId === 'CARD-PHRAE') {
+            personId = 'PERSON-PHRAE';
+            settlementType = 'WE_OWE';
+          }
+        } else if (payerType === 'THEY_PAY') {
+          if (owner === 'แจง') {
+            personId = 'PERSON-JAENG';
+            settlementType = 'THEY_OWE';
+          } else if (owner === 'แม่') {
+            personId = 'PERSON-MOM';
+            settlementType = 'THEY_OWE';
+          } else if (owner === 'พี่แพร' || owner.includes('แพร')) {
+            personId = 'PERSON-PHRAE';
+            settlementType = 'THEY_OWE';
+          }
         }
 
         if (personId) {
@@ -364,6 +394,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     nextData = addAuditEvent(nextData, 'DEBT', editingDebt ? editingDebt.id : 'NEW_DEBT', editingDebt ? 'DEBT_UPDATED' : 'DEBT_CREATED', {
       itemName,
       owner,
+      payerType,
       linkedAccountId,
       monthlyPayment: mth
     });
@@ -403,26 +434,35 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     updateSOTData(nextData);
   };
 
-  const getOwnerBadge = (ownerName, linkedAccountId) => {
-    if (linkedAccountId === 'CARD-JAENG') {
-      return <span className="badge badge-amber" style={{ border: '1px solid var(--accent-amber)' }}>💳 รูดบัตรแจง (เราผ่อนให้)</span>;
-    }
-    if (linkedAccountId === 'CARD-MOM') {
-      return <span className="badge badge-emerald" style={{ border: '1px solid var(--accent-emerald)' }}>💳 รูดบัตรแม่ (เราผ่อนคืน)</span>;
-    }
-    if (linkedAccountId === 'CARD-PHRAE') {
-      return <span className="badge badge-purple" style={{ border: '1px solid var(--accent-purple)' }}>💳 รูดบัตรพี่แพร (เราผ่อนคืน)</span>;
-    }
-
+  const getOwnerBadge = (ownerName) => {
     switch (ownerName) {
       case 'เพื่อนร่วมงาน':
-      case 'เพื่อนร่วมงาน (ที่ทำงาน)': return <span className="badge badge-purple">🏢 เพื่อนที่ทำงาน</span>;
-      case 'พี่แพร': return <span className="badge badge-purple">👩 พี่แพร</span>;
-      case 'แจง': return <span className="badge badge-amber">👰 แจง</span>;
-      case 'น้องพีเจ': return <span className="badge badge-cyan">👶 น้องพีเจ</span>;
-      case 'แม่': return <span className="badge badge-emerald">👵 แม่</span>;
+      case 'เพื่อนร่วมงาน (ที่ทำงาน)': return <span className="badge badge-purple">🏢 ของเพื่อนร่วมงาน</span>;
+      case 'พี่แพร': return <span className="badge badge-purple">👩 ของพี่แพร</span>;
+      case 'แจง': return <span className="badge badge-amber">👰 ของแจง</span>;
+      case 'น้องพีเจ': return <span className="badge badge-cyan">👶 ของน้องพีเจ</span>;
+      case 'แม่': return <span className="badge badge-emerald">👵 ของแม่</span>;
       case 'บ้าน': return <span className="badge badge-cyan">🏠 ของใช้ในบ้าน</span>;
       default: return <span className="badge badge-cyan">👤 ของตัวเอง</span>;
+    }
+  };
+
+  const getPayerBadge = (payerType, ownerName) => {
+    if (payerType === 'THEY_PAY') {
+      return <span className="badge badge-purple" style={{ border: '1px solid rgba(139, 92, 246, 0.4)' }}>🔄 {ownerName || 'เขา'}ผ่อนคืนเรา</span>;
+    }
+    return <span className="badge badge-cyan" style={{ border: '1px solid rgba(6, 182, 212, 0.4)' }}>💵 เราผ่อนเอง</span>;
+  };
+
+  const getCardBadge = (linkedAccountId) => {
+    switch (linkedAccountId) {
+      case 'CARD-JAENG': return <span className="badge badge-amber">💳 รูดบัตรแจง</span>;
+      case 'CARD-MOM': return <span className="badge badge-emerald">💳 รูดบัตรแม่</span>;
+      case 'CARD-PHRAE': return <span className="badge badge-purple">💳 รูดบัตรพี่แพร</span>;
+      case 'KBANK-SPAY': return <span className="badge badge-rose">🛍️ SPayLater</span>;
+      case 'UOB-TMRW': return <span className="badge badge-blue">💳 บัตร UOB</span>;
+      case 'KBANK-DEBIT': return <span className="badge badge-emerald">🏧 เดบิต กสิกร</span>;
+      default: return <span className="badge badge-purple">💳 {linkedAccountId}</span>;
     }
   };
 
@@ -680,8 +720,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
               const completedInstallments = debt.totalInstallments - debt.remainingInstallments;
               const progressPercent = Math.round((completedInstallments / debt.totalInstallments) * 100);
               const isCompleted = debt.remainingInstallments === 0;
-              const isBorrowedCard = debt.linkedAccountId?.startsWith('CARD-');
-              const isReimbursed = debt.owner !== 'ตัวเอง' && debt.owner !== 'บ้าน' && debt.payerType !== 'WE_PAY' && !isBorrowedCard;
+              const isWePay = debt.payerType === 'WE_PAY';
 
               return (
                 <div 
@@ -689,45 +728,81 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                   className="glass-panel" 
                   style={{ 
                     padding: '20px', 
-                    border: isCompleted ? '1px solid rgba(16, 185, 129, 0.3)' : isBorrowedCard ? '1px solid rgba(245, 158, 11, 0.5)' : isReimbursed ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid var(--border-subtle)', 
+                    border: isCompleted ? '1px solid rgba(16, 185, 129, 0.3)' : !isWePay ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid var(--border-subtle)', 
                     position: 'relative' 
                   }}
                 >
                   
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {getOwnerBadge(debt.owner || 'ตัวเอง', debt.linkedAccountId)}
+                      {getOwnerBadge(debt.owner || 'ตัวเอง')}
+                      {getPayerBadge(debt.payerType, debt.owner)}
+                      {getCardBadge(debt.linkedAccountId)}
                       <span className="badge badge-purple">{debt.category}</span>
-                      {isBorrowedCard && <span className="badge badge-amber">🔄 ผ่อนคืนแจง/ครอบครัว</span>}
-                      {isReimbursed && <span className="badge badge-emerald">✨ {debt.owner}จ่ายคืน</span>}
                     </div>
-                    <button 
-                      onClick={() => handleOpenEdit(debt)} 
-                      title="แก้ไขข้อมูล / เปลี่ยนเจ้าของ"
-                      style={{
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid var(--border-subtle)',
-                        color: 'var(--text-secondary)',
-                        borderRadius: '6px',
-                        padding: '4px 8px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '0.75rem'
-                      }}
-                    >
-                      <Edit3 size={12} /> แก้ไข
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button 
+                        onClick={() => handleOpenEdit(debt)} 
+                        title="แก้ไขข้อมูล / เปลี่ยนเจ้าของ"
+                        style={{
+                          background: 'rgba(255,255,255,0.06)',
+                          border: '1px solid var(--border-subtle)',
+                          color: 'var(--text-secondary)',
+                          borderRadius: '6px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        <Edit3 size={12} /> แก้ไข
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteDebt(debt.id)} 
+                        title="ลบรายการนี้"
+                        style={{
+                          background: 'rgba(244,63,94,0.1)',
+                          border: '1px solid rgba(244,63,94,0.3)',
+                          color: 'var(--accent-rose)',
+                          borderRadius: '6px',
+                          padding: '4px 6px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
 
                   <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: '#ffffff', marginBottom: '8px' }}>
                     {debt.itemName}
                   </h3>
 
+                  {/* Clean Info Tags */}
+                  <div style={{ 
+                    display: 'flex', 
+                    flexWrap: 'wrap', 
+                    gap: '8px', 
+                    padding: '8px 10px', 
+                    background: 'rgba(0, 0, 0, 0.25)', 
+                    borderRadius: 'var(--radius-sm)', 
+                    fontSize: '0.78rem',
+                    marginBottom: '10px',
+                    color: 'var(--text-secondary)'
+                  }}>
+                    <span>👤 เจ้าของ: <b style={{ color: '#fff' }}>{debt.owner || 'ตัวเอง'}</b></span>
+                    <span>•</span>
+                    <span>💵 คนผ่อน: <b style={{ color: isWePay ? 'var(--accent-cyan)' : 'var(--accent-purple)' }}>{isWePay ? 'เราผ่อนเอง' : `${debt.owner} ผ่อนคืนเรา`}</b></span>
+                  </div>
+
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                     <span>ค่างวด: <b style={{ color: '#fff' }}>฿{debt.monthlyPayment.toLocaleString()}</b>/ด.</span>
-                    <span>หนี้คงเหลือ: <b style={{ color: isReimbursed ? 'var(--accent-purple)' : isBorrowedCard ? 'var(--accent-amber)' : 'var(--accent-rose)' }}>฿{debt.remainingAmount.toLocaleString()}</b></span>
+                    <span>หนี้คงเหลือ: <b style={{ color: !isWePay ? 'var(--accent-purple)' : 'var(--accent-rose)' }}>฿{debt.remainingAmount.toLocaleString()}</b></span>
                   </div>
 
                   {/* Progress Bar */}
@@ -735,7 +810,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                     <div style={{ 
                       width: `${progressPercent}%`, 
                       height: '100%', 
-                      background: isCompleted ? 'var(--accent-emerald)' : isBorrowedCard ? 'linear-gradient(90deg, #f59e0b, #eab308)' : isReimbursed ? 'linear-gradient(90deg, #8b5cf6, #a855f7)' : 'linear-gradient(90deg, #0284c7, #06b6d4)', 
+                      background: isCompleted ? 'var(--accent-emerald)' : !isWePay ? 'linear-gradient(90deg, #8b5cf6, #a855f7)' : 'linear-gradient(90deg, #0284c7, #06b6d4)', 
                       transition: 'width 0.3s' 
                     }}></div>
                   </div>
@@ -882,9 +957,9 @@ export default function DebtTracker({ sotData, updateSOTData }) {
           justifyContent: 'center',
           zIndex: 1000
         }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '520px', padding: '26px', border: '1px solid var(--border-glow)' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '540px', padding: '26px', border: '1px solid var(--border-glow)', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '16px' }}>
-              {editingDebt ? '✏️ แก้ไขข้อมูลการผ่อนสินค้า' : '➕ บันทึกรายการผ่อนสินค้า (บัตรตัวเอง / บัตรแจง / บัตรแม่)'}
+              {editingDebt ? '✏️ แก้ไขข้อมูลรายการผ่อนสินค้า' : '➕ บันทึกรายการผ่อนสินค้าใหม่'}
             </h3>
 
             <form onSubmit={handleSaveDebt} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -894,7 +969,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 </label>
                 <input
                   type="text"
-                  placeholder="เช่น iPhone 16 Pro (ผ่อนให้แจง)"
+                  placeholder="เช่น iPhone 16 Pro, หูฟัง Sony XM5, พวงมาลัย Logitech"
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
                   style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
@@ -902,54 +977,89 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 />
               </div>
 
-              {/* Card Channel & Responsibility */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {/* 3 Core Selection Questions: Owner, Payer, Card */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label style={{ fontSize: '0.85rem', color: 'var(--accent-amber)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
-                    💳 รูดผ่านบัตร / บัญชีใคร?
+                  <label style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                    👤 1. ใครเป็นเจ้าของสินค้า?
                   </label>
                   <select
-                    value={linkedAccountId}
-                    onChange={(e) => {
-                      setLinkedAccountId(e.target.value);
-                      if (e.target.value === 'CARD-JAENG') {
-                        setOwner('แจง');
-                        setPayerType('WE_PAY');
-                      } else if (e.target.value === 'CARD-MOM') {
-                        setOwner('แม่');
-                        setPayerType('WE_PAY');
-                      } else if (e.target.value === 'CARD-PHRAE') {
-                        setOwner('พี่แพร');
-                        setPayerType('WE_PAY');
-                      }
-                    }}
-                    style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-glow)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
+                    value={owner}
+                    onChange={(e) => setOwner(e.target.value)}
+                    style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
                   >
-                    <option value="CARD-JAENG">👰 บัตรของแจง (ภรรยา)</option>
-                    <option value="CARD-MOM">👵 บัตรของแม่</option>
-                    <option value="CARD-PHRAE">👩 บัตรของพี่แพร</option>
-                    <option value="KBANK-SPAY">🛍️ Shopee SPayLater (ชื่อเรา)</option>
-                    <option value="UOB-TMRW">💳 บัตรกดเงินสด/บัตร UOB (ชื่อเรา)</option>
-                    <option value="KBANK-DEBIT">🏧 บัญชีเดบิต กสิกร</option>
+                    <option value="ตัวเอง">👤 ของตัวเอง</option>
+                    <option value="แจง">👰 ของแจง (ภรรยา)</option>
+                    <option value="พี่แพร">👩 ของพี่แพร</option>
+                    <option value="แม่">👵 ของแม่</option>
+                    <option value="น้องพีเจ">👶 ของน้องพีเจ</option>
+                    <option value="บ้าน">🏠 ของใช้ในบ้าน (ส่วนรวม)</option>
+                    <option value="เพื่อนร่วมงาน">🏢 ของเพื่อนร่วมงาน</option>
                   </select>
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                    ใครรับผิดชอบค่างวด?
+                  <label style={{ fontSize: '0.85rem', color: 'var(--accent-purple)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                    💵 2. ใครเป็นคนผ่อนจ่ายค่างวด?
                   </label>
                   <select
                     value={payerType}
                     onChange={(e) => setPayerType(e.target.value)}
                     style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
                   >
-                    <option value="WE_PAY">👤 เราเป็นคนผ่อนจ่ายคืน</option>
-                    <option value="THEY_PAY">👥 เขาเป็นคนผ่อนจ่ายคืนเรา</option>
+                    <option value="WE_PAY">👤 เราผ่อนจ่ายเอง (ภาระของเรา)</option>
+                    <option value="THEY_PAY">🔄 เจ้าของ/คนอื่นผ่อนคืนเรา (โอนคืนเรา)</option>
                   </select>
                 </div>
               </div>
 
+              <div>
+                <label style={{ fontSize: '0.85rem', color: 'var(--accent-amber)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                  💳 3. รูดซื้อผ่านบัตร / บัญชีของใคร?
+                </label>
+                <select
+                  value={linkedAccountId}
+                  onChange={(e) => setLinkedAccountId(e.target.value)}
+                  style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-glow)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
+                >
+                  <option value="KBANK-SPAY">🛍️ Shopee SPayLater (บัญชีชื่อเรา)</option>
+                  <option value="UOB-TMRW">💳 บัตรกดเงินสด/เครดิต UOB (บัตรชื่อเรา)</option>
+                  <option value="CARD-JAENG">👰 บัตรเครดิตของแจง (ยืมบัตรแจงรูดซื้อ)</option>
+                  <option value="CARD-MOM">👵 บัตรเครดิตของแม่ (ยืมบัตรแม่รูดซื้อ)</option>
+                  <option value="CARD-PHRAE">👩 บัตรเครดิตของพี่แพร (ยืมบัตรพี่แพรรูดซื้อ)</option>
+                  <option value="KBANK-DEBIT">🏧 บัญชีเดบิต กสิกร (เงินสดเรา)</option>
+                </select>
+              </div>
+
+              {/* Dynamic Real-time Help / Summary Card */}
+              <div style={{ 
+                padding: '10px 12px', 
+                borderRadius: 'var(--radius-sm)', 
+                background: 'rgba(255, 255, 255, 0.04)', 
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.8rem',
+                color: 'var(--text-secondary)'
+              }}>
+                💡 <b>สรุปรูปแบบ:</b> ของของ <b>{owner}</b> • รูดด้วย <b>{linkedAccountId === 'CARD-JAENG' ? 'บัตรแจง' : linkedAccountId === 'CARD-MOM' ? 'บัตรแม่' : linkedAccountId === 'CARD-PHRAE' ? 'บัตรพี่แพร' : linkedAccountId === 'KBANK-SPAY' ? 'SPayLater ของเรา' : linkedAccountId === 'UOB-TMRW' ? 'บัตร UOB ของเรา' : 'เดบิตเรา'}</b> • ผู้จ่ายค่างวดคือ <b style={{ color: payerType === 'WE_PAY' ? 'var(--accent-cyan)' : 'var(--accent-purple)' }}>{payerType === 'WE_PAY' ? 'เราผ่อนเอง' : `${owner} ผ่อนคืนเรา`}</b>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                    หมวดหมู่
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
+                  >
+                    <option value="GADGET">📱 Gadget / อุปกรณ์ไอที</option>
+                    <option value="GAMING">🎮 Gaming / พวงมาลัย/เกม</option>
+                    <option value="APPLIANCE">🏠 เครื่องใช้ไฟฟ้า</option>
+                    <option value="FURNITURE">🪑 เฟอร์นิเจอร์</option>
+                    <option value="OTHER">📦 อื่นๆ</option>
+                  </select>
+                </div>
                 <div>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
                     ราคารวม (บาท)
@@ -964,6 +1074,9 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                     required
                   />
                 </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 <div>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
                     ค่างวดต่อเดือน (บาท)
@@ -977,9 +1090,6 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                     style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-cyan)', fontWeight: 700 }}
                   />
                 </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
                     จำนวนงวดทั้งหมด
@@ -993,7 +1103,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 </div>
                 <div>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                    งวดที่ค้างจ่าย (รวมงวดนี้)
+                    งวดที่ค้างจ่าย
                   </label>
                   <input
                     type="number"
@@ -1013,7 +1123,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                   onChange={(e) => setSyncWithFamily(e.target.checked)}
                 />
                 <label htmlFor="syncFam" style={{ fontSize: '0.82rem', color: '#fff', cursor: 'pointer' }}>
-                  🔗 <b>ซิงค์เข้าแท็บ "เคลียร์บิลครอบครัว" อัตโนมัติ:</b> ระบบจะนำค่างวดนี้ไปหักลบกับบิลของแจง/พี่แพร/แม่ สิ้นเดือนให้อัตโนมัติ
+                  🔗 <b>ซิงค์เข้าแท็บ "เคลียร์บิลครอบครัว" อัตโนมัติ:</b> นำค่างวดนี้ไปหักลบกับบิลของแจง/พี่แพร/แม่ สิ้นเดือนให้อัตโนมัติ
                 </label>
               </div>
 
@@ -1026,7 +1136,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                   ยกเลิก
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  บันทึกรายการผ่อน
+                  {editingDebt ? 'บันทึกการแก้ไข' : 'บันทึกรายการผ่อน'}
                 </button>
               </div>
             </form>
