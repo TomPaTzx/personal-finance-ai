@@ -17,6 +17,8 @@ export default function DebtTracker({ sotData, updateSOTData }) {
   const [bnplNote, setBnplNote] = useState('');
 
   const [activeSubTab, setActiveSubTab] = useState('ALL'); // ALL, BNPL, INSTALLMENTS
+  const [selectedPersonFilter, setSelectedPersonFilter] = useState('ALL'); // ALL, ตัวเอง, แจง, พี่แพร, แม่, น้องพีเจ, บ้าน, เพื่อนร่วมงาน
+  const [viewGroupingMode, setViewGroupingMode] = useState('BY_PERSON'); // BY_PERSON, BY_PAYER, FLAT
 
   // Form states for Long-Term Debt Add/Edit
   const [itemName, setItemName] = useState('');
@@ -548,12 +550,106 @@ export default function DebtTracker({ sotData, updateSOTData }) {
         </div>
       </div>
 
-      {/* Subtabs Navigation */}
+      {/* Person Quick-Filter Pills & Action Bar */}
+      <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Users size={16} color="var(--accent-cyan)" /> กรองดูแยกตามบุคคล (Filter by Person):
+            </span>
+          </div>
+
+          {/* Grouping View Switcher */}
+          <div style={{ display: 'flex', gap: '6px', background: 'rgba(0, 0, 0, 0.4)', padding: '3px', borderRadius: 'var(--radius-sm)' }}>
+            <button
+              onClick={() => setViewGroupingMode('BY_PERSON')}
+              className={`btn ${viewGroupingMode === 'BY_PERSON' ? 'btn-primary' : 'btn-outline'}`}
+              style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+            >
+              📂 แยกตามบุคคล
+            </button>
+            <button
+              onClick={() => setViewGroupingMode('BY_PAYER')}
+              className={`btn ${viewGroupingMode === 'BY_PAYER' ? 'btn-primary' : 'btn-outline'}`}
+              style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+            >
+              ⚖️ แยกตามคนจ่าย
+            </button>
+            <button
+              onClick={() => setViewGroupingMode('FLAT')}
+              className={`btn ${viewGroupingMode === 'FLAT' ? 'btn-primary' : 'btn-outline'}`}
+              style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+            >
+              📋 รายการรวม
+            </button>
+          </div>
+        </div>
+
+        {/* Person Filter Pills */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { id: 'ALL', label: '🌟 ทุกคนทั้งหมด', icon: '' },
+            { id: 'ตัวเอง', label: '👤 ของตัวเอง', icon: '' },
+            { id: 'แจง', label: '👰 แจง (ภรรยา)', icon: '' },
+            { id: 'พี่แพร', label: '👩 พี่แพร', icon: '' },
+            { id: 'แม่', label: '👵 แม่', icon: '' },
+            { id: 'น้องพีเจ', label: '👶 น้องพีเจ', icon: '' },
+            { id: 'บ้าน', label: '🏠 ของใช้ในบ้าน', icon: '' },
+            { id: 'เพื่อนร่วมงาน', label: '🏢 เพื่อนร่วมงาน', icon: '' }
+          ].map(p => {
+            const isSelected = selectedPersonFilter === p.id;
+            const pDebts = p.id === 'ALL' ? debts : debts.filter(d => (d.owner === p.id || (p.id === 'เพื่อนร่วมงาน' && d.owner?.includes('เพื่อน'))));
+            const pBnpl = p.id === 'ALL' ? bnplItems : bnplItems.filter(b => (b.owner === p.id || (p.id === 'เพื่อนร่วมงาน' && b.owner?.includes('เพื่อน'))));
+            const totalCount = pDebts.length + pBnpl.length;
+            const pMonthly = pDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0);
+
+            return (
+              <button
+                key={p.id}
+                onClick={() => setSelectedPersonFilter(p.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  borderRadius: '20px',
+                  border: isSelected ? '1px solid var(--accent-cyan)' : '1px solid var(--border-subtle)',
+                  background: isSelected ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                  color: isSelected ? '#fff' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem',
+                  fontWeight: isSelected ? 600 : 400,
+                  transition: 'all 0.2s'
+                }}
+              >
+                <span>{p.label}</span>
+                <span style={{
+                  fontSize: '0.7rem',
+                  padding: '2px 6px',
+                  borderRadius: '10px',
+                  background: isSelected ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.1)',
+                  color: isSelected ? '#000' : 'var(--text-muted)',
+                  fontWeight: 700
+                }}>
+                  {totalCount}
+                </span>
+                {pMonthly > 0 && (
+                  <span style={{ fontSize: '0.72rem', color: isSelected ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
+                    (฿{pMonthly.toLocaleString()}/ด.)
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Subtabs Navigation & Action Buttons */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           {[
             { id: 'ALL', label: 'ทั้งหมด' },
-            { id: 'BNPL', label: `🛒 ช้อปก่อนจ่ายทีหลัง / ฝากซื้อ (${bnplItems.length})` },
+            { id: 'BNPL', label: `🛒 ฝากซื้อ VIP / BNPL (${bnplItems.length})` },
             { id: 'INSTALLMENTS', label: `🛍️ รายการผ่อนระยะยาว (${debts.length})` }
           ].map(tab => (
             <button
@@ -567,12 +663,12 @@ export default function DebtTracker({ sotData, updateSOTData }) {
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button onClick={handleOpenAddBnpl} className="btn btn-warning" style={{ fontSize: '0.85rem' }}>
-            <Plus size={14} /> เพิ่มรายการฝากซื้อ VIP Shopee (BNPL)
+            <Plus size={14} /> เพิ่มรายการฝากซื้อ VIP Shopee
           </button>
           <button onClick={handleOpenAdd} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>
-            <Plus size={14} /> ➕ บันทึกรายการผ่อนสินค้า (บัตรตัวเอง / บัตรแจง / บัตรแม่)
+            <Plus size={14} /> ➕ เพิ่มรายการผ่อนสินค้า
           </button>
         </div>
       </div>
@@ -586,107 +682,109 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 🛒 รายการช้อปก่อนจ่ายทีหลัง & ฝากซื้อ VIP Shopee (BNPL)
               </h3>
               <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                ระบุได้ว่าเพื่อนที่ทำงานหรือคนในบ้านฝากซื้อ พร้อมติ๊กเก็บเงินคืน
+                {selectedPersonFilter === 'ALL' ? 'แสดงรายการทั้งหมด' : `กรองเฉพาะของ "${selectedPersonFilter}"`}
               </p>
             </div>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              ยอดรวม BNPL: <b style={{ color: '#fff' }}>฿{totalBnplAmount.toLocaleString()}</b>
+              ยอดรวม BNPL: <b style={{ color: '#fff' }}>฿{bnplItems.filter(i => selectedPersonFilter === 'ALL' || i.owner === selectedPersonFilter || (selectedPersonFilter === 'เพื่อนร่วมงาน' && i.owner?.includes('เพื่อน'))).reduce((s, i) => s + i.amount, 0).toLocaleString()}</b>
             </span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {bnplItems.map(item => {
-              const isOther = item.owner !== 'ตัวเอง' && item.owner !== 'บ้าน';
+            {bnplItems
+              .filter(item => selectedPersonFilter === 'ALL' || item.owner === selectedPersonFilter || (selectedPersonFilter === 'เพื่อนร่วมงาน' && item.owner?.includes('เพื่อน')))
+              .map(item => {
+                const isOther = item.owner !== 'ตัวเอง' && item.owner !== 'บ้าน';
 
-              return (
-                <div 
-                  key={item.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '12px 16px',
-                    background: item.isPaidBack ? 'rgba(255, 255, 255, 0.015)' : 'rgba(255, 255, 255, 0.03)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
-                    flexWrap: 'wrap',
-                    gap: '10px'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {getOwnerBadge(item.owner)}
-                    <div>
-                      <div style={{ fontSize: '0.92rem', fontWeight: 500, color: '#f8fafc' }}>
-                        {item.title}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {item.note} • {item.category}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent-rose)' }}>
-                        ฿{item.amount.toLocaleString()}
-                      </div>
-                      {isOther && (
-                        <div style={{ fontSize: '0.72rem', color: item.isPaidBack ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
-                          {item.isPaidBack ? '✅ เก็บเงินคืนแล้ว' : '⏳ รอเก็บเงินคืน'}
+                return (
+                  <div 
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px 16px',
+                      background: item.isPaidBack ? 'rgba(255, 255, 255, 0.015)' : 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      flexWrap: 'wrap',
+                      gap: '10px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      {getOwnerBadge(item.owner)}
+                      <div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: 500, color: '#f8fafc' }}>
+                          {item.title}
                         </div>
-                      )}
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {item.note} • {item.category}
+                        </div>
+                      </div>
                     </div>
 
-                    {isOther && (
-                      <button
-                        onClick={() => handleToggleBnplPaidBack(item.id)}
-                        title={item.isPaidBack ? 'เปลี่ยนเป็นยังไม่ได้รับเงิน' : 'ติ๊กว่าได้รับเงินคืนแล้ว'}
-                        className={`btn ${item.isPaidBack ? 'btn-outline' : 'btn-warning'}`}
-                        style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent-rose)' }}>
+                          ฿{item.amount.toLocaleString()}
+                        </div>
+                        {isOther && (
+                          <div style={{ fontSize: '0.72rem', color: item.isPaidBack ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
+                            {item.isPaidBack ? '✅ เก็บเงินคืนแล้ว' : '⏳ รอเก็บเงินคืน'}
+                          </div>
+                        )}
+                      </div>
+
+                      {isOther && (
+                        <button
+                          onClick={() => handleToggleBnplPaidBack(item.id)}
+                          title={item.isPaidBack ? 'เปลี่ยนเป็นยังไม่ได้รับเงิน' : 'ติ๊กว่าได้รับเงินคืนแล้ว'}
+                          className={`btn ${item.isPaidBack ? 'btn-outline' : 'btn-warning'}`}
+                          style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                        >
+                          {item.isPaidBack ? <Check size={12} /> : <Clock size={12} />}
+                          {item.isPaidBack ? 'จ่ายคืนแล้ว' : 'รับเงินคืน'}
+                        </button>
+                      )}
+
+                      <button 
+                        onClick={() => handleOpenEditBnpl(item)}
+                        title="แก้ไขรายการ"
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
                       >
-                        {item.isPaidBack ? <Check size={12} /> : <Clock size={12} />}
-                        {item.isPaidBack ? 'จ่ายคืนแล้ว' : 'รับเงินคืน'}
+                        <Edit3 size={14} />
                       </button>
-                    )}
 
-                    <button 
-                      onClick={() => handleOpenEditBnpl(item)}
-                      title="แก้ไขรายการ"
-                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-                    >
-                      <Edit3 size={14} />
-                    </button>
-
-                    <button 
-                      onClick={() => handleDeleteBnpl(item.id)}
-                      title="ลบรายการ"
-                      style={{ background: 'transparent', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                      <button 
+                        onClick={() => handleDeleteBnpl(item.id)}
+                        title="ลบรายการ"
+                        style={{ background: 'transparent', border: 'none', color: 'var(--accent-rose)', cursor: 'pointer', padding: '4px' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         </div>
       )}
 
       {/* SECTION B: LONG-TERM INSTALLMENT PLANS */}
       {(activeSubTab === 'ALL' || activeSubTab === 'INSTALLMENTS') && (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
           
           {/* Summary of Personal Debt vs Others Debt */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', marginBottom: '18px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
             <div style={{ background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.3)', padding: '14px', borderRadius: 'var(--radius-sm)' }}>
               <div style={{ fontSize: '0.78rem', color: 'var(--accent-rose)', fontWeight: 600 }}>
-                👤 ภาระผ่อนของตัวเองจริง (ต้องจ่ายเอง)
+                👤 ภาระผ่อนของตัวเองจริง (เราต้องจ่ายเอง)
               </div>
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', margin: '4px 0' }}>
                 ฿{myMonthlyDebt.toLocaleString()} <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)' }}>/เดือน</span>
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                รวมทั้งของตัวเองใน SPayLater และของที่เรารูดผ่อนผ่านบัตรแจง/แม่
+                {myDebts.length} รายการ (รวมของตัวเองใน SPayLater และของที่เรารูดผ่อนผ่านบัตรแจง/แม่)
               </div>
             </div>
 
@@ -701,138 +799,241 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 ฿{othersMonthlyDebt.toLocaleString()} <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)' }}>/เดือน</span>
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                แท็บเล็ต UOB พี่แพร (฿663.89/ด. พี่แพรจ่ายคืนเรามาตัดบัตร)
+                {othersDebts.map(d => `${d.itemName} (฿${d.monthlyPayment}/ด.)`).join(', ') || 'ไม่มีรายการค้าง'}
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--accent-cyan)' }}>
-              🛍️ รายการผ่อนระยะยาวทั้งหมด (Long-Term Installment Plans)
-            </h3>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              ยอดเรียกเก็บรวม: <b>฿{totalMonthlyBilled.toLocaleString()}/ด.</b>
-            </span>
-          </div>
+          {/* RENDER MODE 1: BY_PERSON (Grouped by Person - Default) */}
+          {viewGroupingMode === 'BY_PERSON' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {[
+                { name: 'ตัวเอง', title: '👤 ของตัวเอง (เราใช้เอง)' },
+                { name: 'แจง', title: '👰 ของแจง (ภรรยา)' },
+                { name: 'พี่แพร', title: '👩 ของพี่แพร' },
+                { name: 'แม่', title: '👵 ของแม่' },
+                { name: 'น้องพีเจ', title: '👶 ของน้องพีเจ' },
+                { name: 'บ้าน', title: '🏠 ของใช้ส่วนรวมในบ้าน' },
+                { name: 'เพื่อนร่วมงาน', title: '🏢 ของเพื่อนร่วมงาน' }
+              ]
+                .filter(group => selectedPersonFilter === 'ALL' || selectedPersonFilter === group.name)
+                .map(group => {
+                  const groupDebts = debts.filter(d => (d.owner === group.name || (group.name === 'เพื่อนร่วมงาน' && d.owner?.includes('เพื่อน'))));
+                  if (groupDebts.length === 0) return null;
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: '16px' }}>
-            {debts.map(debt => {
-              const completedInstallments = debt.totalInstallments - debt.remainingInstallments;
-              const progressPercent = Math.round((completedInstallments / debt.totalInstallments) * 100);
-              const isCompleted = debt.remainingInstallments === 0;
-              const isWePay = debt.payerType === 'WE_PAY';
+                  const groupMonthly = groupDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0);
+                  const groupRemaining = groupDebts.reduce((s, d) => s + (d.remainingAmount || 0), 0);
 
-              return (
-                <div 
-                  key={debt.id} 
-                  className="glass-panel" 
-                  style={{ 
-                    padding: '20px', 
-                    border: isCompleted ? '1px solid rgba(16, 185, 129, 0.3)' : !isWePay ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid var(--border-subtle)', 
-                    position: 'relative' 
-                  }}
-                >
-                  
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {getOwnerBadge(debt.owner || 'ตัวเอง')}
-                      {getPayerBadge(debt.payerType, debt.owner)}
-                      {getCardBadge(debt.linkedAccountId)}
-                      <span className="badge badge-purple">{debt.category}</span>
+                  return (
+                    <div key={group.name} className="glass-panel" style={{ padding: '18px 20px', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff' }}>
+                            {group.title}
+                          </h3>
+                          <span className="badge badge-purple">{groupDebts.length} รายการ</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '14px', fontSize: '0.82rem', flexWrap: 'wrap' }}>
+                          <span>ค่างวดรวม: <b style={{ color: 'var(--accent-cyan)' }}>฿{groupMonthly.toLocaleString()}/ด.</b></span>
+                          <span>หนี้คงเหลือรวม: <b style={{ color: 'var(--accent-rose)' }}>฿{groupRemaining.toLocaleString()}</b></span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
+                        {groupDebts.map(debt => {
+                          const completedInstallments = debt.totalInstallments - debt.remainingInstallments;
+                          const progressPercent = Math.round((completedInstallments / debt.totalInstallments) * 100);
+                          const isCompleted = debt.remainingInstallments === 0;
+                          const isWePay = debt.payerType === 'WE_PAY';
+
+                          return (
+                            <div 
+                              key={debt.id} 
+                              style={{ 
+                                padding: '16px', 
+                                background: 'rgba(255, 255, 255, 0.02)',
+                                borderRadius: 'var(--radius-sm)',
+                                border: isCompleted ? '1px solid rgba(16, 185, 129, 0.3)' : !isWePay ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid var(--border-subtle)'
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  {getPayerBadge(debt.payerType, debt.owner)}
+                                  {getCardBadge(debt.linkedAccountId)}
+                                  <span className="badge badge-purple">{debt.category}</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  <button 
+                                    onClick={() => handleOpenEdit(debt)} 
+                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', borderRadius: '6px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.72rem' }}
+                                  >
+                                    <Edit3 size={11} /> แก้ไข
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteDebt(debt.id)} 
+                                    style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', color: 'var(--accent-rose)', borderRadius: '6px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', fontSize: '0.72rem' }}
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <h4 style={{ fontSize: '0.98rem', fontWeight: 600, color: '#fff', marginBottom: '6px' }}>
+                                {debt.itemName}
+                              </h4>
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                <span>ค่างวด: <b style={{ color: '#fff' }}>฿{debt.monthlyPayment.toLocaleString()}</b>/ด.</span>
+                                <span>หนี้คงเหลือ: <b style={{ color: !isWePay ? 'var(--accent-purple)' : 'var(--accent-rose)' }}>฿{debt.remainingAmount.toLocaleString()}</b></span>
+                              </div>
+
+                              {/* Progress Bar */}
+                              <div style={{ width: '100%', height: '6px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '3px', overflow: 'hidden', marginBottom: '10px' }}>
+                                <div style={{ 
+                                  width: `${progressPercent}%`, 
+                                  height: '100%', 
+                                  background: isCompleted ? 'var(--accent-emerald)' : !isWePay ? 'linear-gradient(90deg, #8b5cf6, #a855f7)' : 'linear-gradient(90deg, #0284c7, #06b6d4)', 
+                                  transition: 'width 0.3s' 
+                                }}></div>
+                              </div>
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                  จ่ายแล้ว {completedInstallments}/{debt.totalInstallments} (เหลือ {debt.remainingInstallments} งวด)
+                                </span>
+                                {!isCompleted && (
+                                  <button 
+                                    onClick={() => handlePaySingleInstallment(debt.id)}
+                                    className="btn btn-outline"
+                                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                                  >
+                                    ตัดจ่ายงวดนี้
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button 
-                        onClick={() => handleOpenEdit(debt)} 
-                        title="แก้ไขข้อมูล / เปลี่ยนเจ้าของ"
-                        style={{
-                          background: 'rgba(255,255,255,0.06)',
-                          border: '1px solid var(--border-subtle)',
-                          color: 'var(--text-secondary)',
-                          borderRadius: '6px',
-                          padding: '4px 8px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontSize: '0.75rem'
-                        }}
-                      >
-                        <Edit3 size={12} /> แก้ไข
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteDebt(debt.id)} 
-                        title="ลบรายการนี้"
-                        style={{
-                          background: 'rgba(244,63,94,0.1)',
-                          border: '1px solid rgba(244,63,94,0.3)',
-                          color: 'var(--accent-rose)',
-                          borderRadius: '6px',
-                          padding: '4px 6px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          fontSize: '0.75rem'
-                        }}
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                  );
+                })}
+            </div>
+          )}
+
+          {/* RENDER MODE 2 & 3: BY_PAYER or FLAT */}
+          {viewGroupingMode !== 'BY_PERSON' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: '16px' }}>
+              {debts
+                .filter(debt => {
+                  if (selectedPersonFilter !== 'ALL') {
+                    if (selectedPersonFilter === 'เพื่อนร่วมงาน') {
+                      if (!debt.owner?.includes('เพื่อน')) return false;
+                    } else if (debt.owner !== selectedPersonFilter) {
+                      return false;
+                    }
+                  }
+                  return true;
+                })
+                .sort((a, b) => {
+                  if (viewGroupingMode === 'BY_PAYER') {
+                    return a.payerType === 'WE_PAY' ? -1 : 1;
+                  }
+                  return 0;
+                })
+                .map(debt => {
+                  const completedInstallments = debt.totalInstallments - debt.remainingInstallments;
+                  const progressPercent = Math.round((completedInstallments / debt.totalInstallments) * 100);
+                  const isCompleted = debt.remainingInstallments === 0;
+                  const isWePay = debt.payerType === 'WE_PAY';
+
+                  return (
+                    <div 
+                      key={debt.id} 
+                      className="glass-panel" 
+                      style={{ 
+                        padding: '20px', 
+                        border: isCompleted ? '1px solid rgba(16, 185, 129, 0.3)' : !isWePay ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid var(--border-subtle)', 
+                        position: 'relative' 
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {getOwnerBadge(debt.owner || 'ตัวเอง')}
+                          {getPayerBadge(debt.payerType, debt.owner)}
+                          {getCardBadge(debt.linkedAccountId)}
+                          <span className="badge badge-purple">{debt.category}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button 
+                            onClick={() => handleOpenEdit(debt)} 
+                            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}
+                          >
+                            <Edit3 size={12} /> แก้ไข
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteDebt(debt.id)} 
+                            style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', color: 'var(--accent-rose)', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', fontSize: '0.75rem' }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: '#ffffff', marginBottom: '8px' }}>
+                        {debt.itemName}
+                      </h3>
+
+                      <div style={{ 
+                        display: 'flex', 
+                        flexWrap: 'wrap', 
+                        gap: '8px', 
+                        padding: '8px 10px', 
+                        background: 'rgba(0, 0, 0, 0.25)', 
+                        borderRadius: 'var(--radius-sm)', 
+                        fontSize: '0.78rem',
+                        marginBottom: '10px',
+                        color: 'var(--text-secondary)'
+                      }}>
+                        <span>👤 เจ้าของ: <b style={{ color: '#fff' }}>{debt.owner || 'ตัวเอง'}</b></span>
+                        <span>•</span>
+                        <span>💵 คนผ่อน: <b style={{ color: isWePay ? 'var(--accent-cyan)' : 'var(--accent-purple)' }}>{isWePay ? 'เราผ่อนเอง' : `${debt.owner} ผ่อนคืนเรา`}</b></span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        <span>ค่างวด: <b style={{ color: '#fff' }}>฿{debt.monthlyPayment.toLocaleString()}</b>/ด.</span>
+                        <span>หนี้คงเหลือ: <b style={{ color: !isWePay ? 'var(--accent-purple)' : 'var(--accent-rose)' }}>฿{debt.remainingAmount.toLocaleString()}</b></span>
+                      </div>
+
+                      <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden', marginBottom: '14px' }}>
+                        <div style={{ 
+                          width: `${progressPercent}%`, 
+                          height: '100%', 
+                          background: isCompleted ? 'var(--accent-emerald)' : !isWePay ? 'linear-gradient(90deg, #8b5cf6, #a855f7)' : 'linear-gradient(90deg, #0284c7, #06b6d4)', 
+                          transition: 'width 0.3s' 
+                        }}></div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid var(--border-subtle)' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          จ่ายแล้ว {completedInstallments} / {debt.totalInstallments} (ค้างจ่ายรวมบิลนี้: {debt.remainingInstallments} งวด)
+                        </span>
+                        {!isCompleted && (
+                          <button 
+                            onClick={() => handlePaySingleInstallment(debt.id)}
+                            className="btn btn-outline"
+                            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                          >
+                            ตัดจ่ายงวดนี้
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  );
+                })}
+            </div>
+          )}
 
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: '#ffffff', marginBottom: '8px' }}>
-                    {debt.itemName}
-                  </h3>
-
-                  {/* Clean Info Tags */}
-                  <div style={{ 
-                    display: 'flex', 
-                    flexWrap: 'wrap', 
-                    gap: '8px', 
-                    padding: '8px 10px', 
-                    background: 'rgba(0, 0, 0, 0.25)', 
-                    borderRadius: 'var(--radius-sm)', 
-                    fontSize: '0.78rem',
-                    marginBottom: '10px',
-                    color: 'var(--text-secondary)'
-                  }}>
-                    <span>👤 เจ้าของ: <b style={{ color: '#fff' }}>{debt.owner || 'ตัวเอง'}</b></span>
-                    <span>•</span>
-                    <span>💵 คนผ่อน: <b style={{ color: isWePay ? 'var(--accent-cyan)' : 'var(--accent-purple)' }}>{isWePay ? 'เราผ่อนเอง' : `${debt.owner} ผ่อนคืนเรา`}</b></span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                    <span>ค่างวด: <b style={{ color: '#fff' }}>฿{debt.monthlyPayment.toLocaleString()}</b>/ด.</span>
-                    <span>หนี้คงเหลือ: <b style={{ color: !isWePay ? 'var(--accent-purple)' : 'var(--accent-rose)' }}>฿{debt.remainingAmount.toLocaleString()}</b></span>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden', marginBottom: '14px' }}>
-                    <div style={{ 
-                      width: `${progressPercent}%`, 
-                      height: '100%', 
-                      background: isCompleted ? 'var(--accent-emerald)' : !isWePay ? 'linear-gradient(90deg, #8b5cf6, #a855f7)' : 'linear-gradient(90deg, #0284c7, #06b6d4)', 
-                      transition: 'width 0.3s' 
-                    }}></div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid var(--border-subtle)' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      จ่ายแล้ว {completedInstallments} / {debt.totalInstallments} (ค้างจ่ายรวมบิลนี้: {debt.remainingInstallments} งวด)
-                    </span>
-                    {!isCompleted && (
-                      <button 
-                        onClick={() => handlePaySingleInstallment(debt.id)}
-                        className="btn btn-outline"
-                        style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-                      >
-                        ตัดจ่ายงวดนี้
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </div>
       )}
 
