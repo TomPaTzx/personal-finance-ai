@@ -46,4 +46,19 @@
   - [x] ระบบ Conflict Guard ป้องกันการโหลดข้อมูล Cloud ทับข้อมูลในเครื่องที่ทำงานโดยไม่ตั้งใจ
   - [x] ระบบแจ้งเตือน Cyber Dark Glassmorphism Modals & Floating Toasts
 
+- [x] **Phase 7: Sommai Money Rebranding, Sidebar Layout & Smart Ingestion**
+  - [x] แปลงโฉมระบบเป็น "สมหมาย (Sommai Money)" เลขาการเงินส่วนตัว
+  - [x] ระบบเมนูด้านข้าง Modern Collapsible Sidebar (3 กลุ่มหลัก จัดระเบียบคลีน 100%)
+  - [x] ระบบดูดยอดเงินเดือน 1-Click Salary Bookmarklet Tool
+  - [x] ระบบ Real OCR & PromptPay QR Code Scanner (อ่านสลิปธนาคารจริง)
+  - [x] ระบบแกะรายการผ่อน SPayLater จากภาพแคปหน้าจอ Shopee (สร้างหนี้/ปรับยอดผ่อนให้อัตโนมัติ)
+  - [x] ระบบ Dogfooding & Single-User Private Validation Ready
+
+---
+
+## 🎯 Next Steps:
+- [ ] ทดลองใช้งานจริงรอบเคลียร์บิลประจำเดือน (Monthly Bill Settlement & Allocation)
+- [ ] ติดตามผลการหักเงิน Shopee SPayLater และการกระจายเงินเข้ากระเป๋าจริง
+- [ ] บันทึกฟีดแบ็กและปรับจูนความแม่นยำของ OCR ตามสลิปจริงในชีวิตประจำวัน
+
 
