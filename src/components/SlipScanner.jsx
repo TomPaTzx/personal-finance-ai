@@ -278,7 +278,7 @@ export default function SlipScanner({ sotData, updateSOTData }) {
               สแกนสลิปโอนเงิน & ใบเสร็จชำระหนี้ (Real OCR & PromptPay QR)
             </h2>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              อัปโหลดสลิปธนาคารจริง AI อ่าน QR Code & ถอดตัวเลข ตัดยอดกระเป๋าหรือชำระหนี้เข้า SOT ทันที
+              อัปโหลดสลิปธนาคารจริง AI อ่าน QR Code & ถอดตัวเลข ตัดยอดกระเป๋าหรือชำระหนี้เข้า Cloud ทันที
             </p>
           </div>
 

@@ -455,10 +455,10 @@ export default function App() {
                   />
                   <div>
                     <strong style={{ fontSize: '0.9rem', color: '#fff', display: 'block' }}>
-                      🔄 2. รีเซ็ตกลับเป็นค่าตั้งต้น SOT.md
+                      🔄 2. รีเซ็ตกลับเป็นค่าเริ่มต้นระบบ (Default Template)
                     </strong>
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      รีเซ็ตกลับเป็นค่าเริ่มต้นตามสลิปและข้อมูล SOT (เงินเดือน ฿17,993 + หนี้ 10 รายการ)
+                      คืนค่ากระเป๋าเงินและรายการหนี้สินตามแม่แบบตั้งต้น (เงินเดือน ฿17,993 + หนี้ 10 รายการ)
                     </span>
                   </div>
                 </label>
