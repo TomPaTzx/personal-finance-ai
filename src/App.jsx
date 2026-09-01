@@ -31,6 +31,7 @@ import SubscriptionsManager from './components/SubscriptionsManager';
 import GoalsAndAnalytics from './components/GoalsAndAnalytics';
 import MonthlyHistoryAndCoach from './components/MonthlyHistoryAndCoach';
 import CloudSyncModal from './components/CloudSyncModal';
+import SyncConflictModal from './components/SyncConflictModal';
 
 import { 
   loadSOTData, 
@@ -49,24 +50,63 @@ export default function App() {
   const [sotData, setSotData] = useState(() => loadSOTData());
   const [showResetModal, setShowResetModal] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
+  const [conflictData, setConflictData] = useState(null); // { local, cloud }
   const [confirmInput, setConfirmInput] = useState('');
   const [resetMode, setResetMode] = useState('ZERO'); // 'ZERO' or 'SOT_DEFAULT'
   const [cloudStatus, setCloudStatus] = useState('connecting'); // 'connecting' | 'synced' | 'syncing' | 'error'
   const [lastSyncTime, setLastSyncTime] = useState(null);
 
-  // Manual & Initial Sync with Supabase Cloud
+  // Manual & Initial Sync with Supabase Cloud (with Conflict Guard)
   const handleCloudSync = useCallback(async (silent = false) => {
     if (!silent) setCloudStatus('syncing');
     const res = await fetchCloudSOTData();
     if (res.success && res.data) {
-      setSotData(res.data);
-      setCloudStatus('synced');
-      setLastSyncTime(new Date());
+      const localCurrent = loadSOTData();
+      
+      // Compare local accounts vs cloud accounts
+      const localStr = JSON.stringify(localCurrent.accounts || []);
+      const cloudStr = JSON.stringify(res.data.accounts || []);
+      const hasResolvedSession = sessionStorage.getItem('PF_CONFLICT_RESOLVED_SESSION');
+
+      if (!hasResolvedSession && localStr !== cloudStr && (localCurrent.accounts?.length > 0)) {
+        setConflictData({ local: localCurrent, cloud: res.data });
+        setCloudStatus('synced');
+      } else {
+        setSotData(res.data);
+        setCloudStatus('synced');
+        setLastSyncTime(new Date());
+      }
     } else {
       console.warn('Cloud sync issue:', res.error);
       setCloudStatus('error');
     }
   }, []);
+
+  const handleResolveUsingLocal = async () => {
+    if (!conflictData) return;
+    sessionStorage.setItem('PF_CONFLICT_RESOLVED_SESSION', 'true');
+    setSotData(conflictData.local);
+    setCloudStatus('syncing');
+    saveSOTData(conflictData.local);
+    const res = await pushCloudSOTData(conflictData.local);
+    setConflictData(null);
+    if (res.success) {
+      setCloudStatus('synced');
+      setLastSyncTime(new Date());
+      toast('☁️ บันทึกข้อมูลเครื่องนี้ขึ้น Cloud เรียบร้อยแล้ว!', { type: 'success' });
+    }
+  };
+
+  const handleResolveUsingCloud = () => {
+    if (!conflictData) return;
+    sessionStorage.setItem('PF_CONFLICT_RESOLVED_SESSION', 'true');
+    setSotData(conflictData.cloud);
+    saveSOTData(conflictData.cloud);
+    setConflictData(null);
+    setCloudStatus('synced');
+    setLastSyncTime(new Date());
+    toast('📥 โหลดข้อมูลจาก Cloud มาใส่เครื่องนี้เรียบร้อยแล้ว!', { type: 'success' });
+  };
 
   // Initial cloud fetch on mount and listen to realtime changes
   useEffect(() => {
@@ -74,9 +114,12 @@ export default function App() {
 
     // Subscribe to Realtime Postgres updates across devices
     const unsubscribe = subscribeToCloudUpdates((newCloudData) => {
-      setSotData(newCloudData);
-      setCloudStatus('synced');
-      setLastSyncTime(new Date());
+      // Only auto-update if not in the middle of resolving conflict
+      if (!sessionStorage.getItem('PF_CONFLICT_RESOLVED_SESSION')) {
+        setSotData(newCloudData);
+        setCloudStatus('synced');
+        setLastSyncTime(new Date());
+      }
     });
 
     return () => {
@@ -461,6 +504,15 @@ export default function App() {
         cloudStatus={cloudStatus}
         lastSyncTime={lastSyncTime}
         onRefreshCloud={handleCloudSync}
+      />
+
+      {/* Sync Conflict Guard Modal */}
+      <SyncConflictModal
+        isOpen={Boolean(conflictData)}
+        localData={conflictData?.local}
+        cloudData={conflictData?.cloud}
+        onResolveUsingLocal={handleResolveUsingLocal}
+        onResolveUsingCloud={handleResolveUsingCloud}
       />
 
     </div>
