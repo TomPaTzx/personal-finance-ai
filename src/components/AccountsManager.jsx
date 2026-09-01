@@ -21,16 +21,19 @@ import {
   Lock,
   Smile,
   ShieldAlert,
-  HelpCircle
+  HelpCircle,
+  Zap
 } from 'lucide-react';
 import { addAuditEvent } from '../services/storageService';
 import { useModalNotification } from '../context/ModalNotificationContext';
+import SalaryBookmarkletModal from './SalaryBookmarkletModal';
 
 export default function AccountsManager({ sotData, updateSOTData }) {
   const { confirm: modalConfirm, alert: modalAlert, toast } = useModalNotification();
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showOtModal, setShowOtModal] = useState(false);
   const [showAllocationModal, setShowAllocationModal] = useState(false);
+  const [showBookmarkletModal, setShowBookmarkletModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
 
   // Transfer states
@@ -468,6 +471,9 @@ export default function AccountsManager({ sotData, updateSOTData }) {
           </div>
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button onClick={() => setShowBookmarkletModal(true)} className="btn btn-outline" style={{ fontSize: '0.85rem', borderColor: 'rgba(6, 182, 212, 0.4)', color: 'var(--accent-cyan)' }}>
+              <Zap size={15} /> ⚡ ปุ่มลัดดูดยอดเงินเดือน
+            </button>
             <button onClick={handleOpenAllocationModal} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>
               <Calculator size={15} /> 🧮 ผู้ช่วยจัดสรรเงิน: ล็อกบิลก่อน & ใช้แบบไม่ต้องคิด
             </button>
@@ -1237,6 +1243,12 @@ export default function AccountsManager({ sotData, updateSOTData }) {
           </div>
         </div>
       )}
+
+      {/* Salary Scraper Bookmarklet Modal */}
+      <SalaryBookmarkletModal
+        isOpen={showBookmarkletModal}
+        onClose={() => setShowBookmarkletModal(false)}
+      />
 
     </div>
   );
