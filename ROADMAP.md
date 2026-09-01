@@ -42,5 +42,8 @@
   - [x] ระบบ Auto-Sync ข้ามอุปกรณ์ (เปิดบนคอมหรือมือถือ ค่าตรงกันทันที)
   - [x] Realtime Postgres Subscription Listener
   - [x] สถานะการเชื่อมต่อ Cloud Status Badge & ปุ่ม Sync ด่วนบน Header
+  - [x] ศูนย์จัดการ Cloud Sync & Backup Manager (Push / Pull / Export / Import JSON)
+  - [x] ระบบ Conflict Guard ป้องกันการโหลดข้อมูล Cloud ทับข้อมูลในเครื่องที่ทำงานโดยไม่ตั้งใจ
+  - [x] ระบบแจ้งเตือน Cyber Dark Glassmorphism Modals & Floating Toasts
 
 
