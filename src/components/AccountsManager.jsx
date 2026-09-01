@@ -48,7 +48,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
   const [homeTargetAmount, setHomeTargetAmount] = useState(0);
 
   const [paySubsBill, setPaySubsBill] = useState(true);
-  const [subsTargetAmount, setSubsTargetAmount] = useState(541);
+  const [subsTargetAmount, setSubsTargetAmount] = useState(800);
 
   const [payDebtsBill, setPayDebtsBill] = useState(false);
   const [debtsTargetAmount, setDebtsTargetAmount] = useState(0);
@@ -86,10 +86,16 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     return sum + (net > 0 ? net : 0);
   }, 0);
 
-  // Total active subscriptions
+  // Total active subscriptions upfront cash requirement for allocation
+  // (Netflix charges full ฿518 to card/account first, even if we split ฿259 with sister later in Family Hub)
   const totalActiveSubs = subscriptions
     .filter(s => s.status === 'ACTIVE')
-    .reduce((sum, s) => sum + (s.ourShareAmount || 0), 0);
+    .reduce((sum, s) => {
+      if (s.id === 'SUB-NETFLIX' || s.name?.toLowerCase().includes('netflix')) {
+        return sum + (s.fullAmount || 518);
+      }
+      return sum + (s.ourShareAmount || s.fullAmount || 0);
+    }, 0);
 
   // Total personal debt monthly installments
   const totalPersonalMonthlyDebt = debts
@@ -115,7 +121,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     const isSpayNeeded = spayGap > 0;
 
     // Default allocation towards SPay from this inflow
-    const subsCost = totalActiveSubs > 0 ? totalActiveSubs : 541;
+    const subsCost = totalActiveSubs > 0 ? totalActiveSubs : 800;
     let defaultSpayAlloc = 0;
     if (isSpayNeeded) {
       if (initialInflow >= (spayGap + subsCost)) {
@@ -131,8 +137,8 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     setPaySpayBill(isSpayNeeded);
     setSpayTargetAmount(defaultSpayAlloc);
 
-    // 3. Subscriptions
-    const liveSubs = totalActiveSubs > 0 ? totalActiveSubs : 541;
+    // 3. Subscriptions (Netflix เต็มจำนวน ฿518 + YouTube ฿64 + Google One ฿189 + CapCut ฿29 = ฿800)
+    const liveSubs = totalActiveSubs > 0 ? totalActiveSubs : 800;
     const isSubsNeeded = initialInflow >= liveSubs;
     setPaySubsBill(isSubsNeeded);
     setSubsTargetAmount(liveSubs);
@@ -766,10 +772,10 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                     />
                     <div>
                       <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#fff' }}>
-                        📺 บริการรายเดือน (YouTube, Google One, Netflix, CapCut)
+                        📺 บริการรายเดือน (YouTube ฿64, Google One ฿189, Netflix เต็มจำนวน ฿518, CapCut ฿29)
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        กันเงินไว้ใน [KBANK-MAIN] สำหรับตัดรอบบิลวันที่ 5, 12, 15, 20
+                        กันเงินไว้ใน [KBANK-MAIN] ยอดรวม ฿{subsTargetAmount} (Netflix จัดเต็ม ฿518 เพื่อรองรับการตัดบัตร แล้วเคลียร์หาร ฿259 กับพี่แพรใน Family Hub)
                       </div>
                     </div>
                   </label>
