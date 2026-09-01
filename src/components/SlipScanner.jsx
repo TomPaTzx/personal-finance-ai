@@ -32,7 +32,7 @@ export default function SlipScanner({ sotData, updateSOTData }) {
   const [previewUrl, setPreviewUrl] = useState(null);
 
   // Editable Form states
-  const [actionType, setActionType] = useState('EXPENSE'); // 'EXPENSE' | 'DEBT_PAYMENT' | 'INCOME'
+  const [actionType, setActionType] = useState('EXPENSE'); // 'EXPENSE' | 'DEBT_PAYMENT' | 'NEW_BNPL_ITEM' | 'INCOME'
   const [amount, setAmount] = useState('');
   const [merchant, setMerchant] = useState('');
   const [bankRef, setBankRef] = useState('');
@@ -40,6 +40,12 @@ export default function SlipScanner({ sotData, updateSOTData }) {
   const [selectedAccount, setSelectedAccount] = useState('KBANK-FOOD');
   const [selectedDebtId, setSelectedDebtId] = useState('SPAY-01');
   const [customNote, setCustomNote] = useState('');
+
+  // BNPL Specific states
+  const [itemName, setItemName] = useState('');
+  const [totalInstallments, setTotalInstallments] = useState('3');
+  const [monthlyPayment, setMonthlyPayment] = useState('');
+  const [owner, setOwner] = useState('ตัวเอง');
 
   const fileInputRef = useRef(null);
 
@@ -70,11 +76,14 @@ export default function SlipScanner({ sotData, updateSOTData }) {
       setCategory(res.data.detectedCategory || 'FOOD');
       setActionType(res.data.suggestedAction || 'EXPENSE');
       if (res.data.matchedDebtId) setSelectedDebtId(res.data.matchedDebtId);
+      if (res.data.detectedItemName) setItemName(res.data.detectedItemName);
+      if (res.data.detectedInstallments) setTotalInstallments(res.data.detectedInstallments.toString());
+      if (res.data.detectedMonthlyAmount) setMonthlyPayment(res.data.detectedMonthlyAmount.toString());
+      if (res.data.detectedOwner) setOwner(res.data.detectedOwner);
       
-      toast('✨ สแกนสลิปสำเร็จ! กรุณาตรวจสอบข้อมูลก่อนกดยืนยัน', { type: 'success' });
+      toast('✨ สแกนสลิป/บิลสำเร็จ! กรุณาตรวจสอบข้อมูลก่อนกดยืนยัน', { type: 'success' });
     } else {
       toast(`⚠️ สแกนสลิปไม่สำเร็จ: ${res.error || 'ไม่พบข้อความ'}`, { type: 'error' });
-      // Still allow manual entry
       setScannedResult({
         merchant: 'รายการจากสลิป',
         amount: 0,
@@ -96,6 +105,58 @@ export default function SlipScanner({ sotData, updateSOTData }) {
   // Submit and Apply Slip to SOT
   const handleConfirmSlip = async () => {
     const numAmount = parseFloat(amount);
+
+    // 0. If NEW_BNPL_ITEM -> Add new installment item to debts & bnplItems
+    if (actionType === 'NEW_BNPL_ITEM') {
+      const instNum = parseInt(totalInstallments) || 1;
+      const monthNum = parseFloat(monthlyPayment) || (numAmount / instNum);
+      const totalVal = numAmount || (instNum * monthNum);
+
+      const newBnpl = {
+        id: `BNPL-${Date.now().toString().slice(-4)}`,
+        itemName: itemName || merchant || 'สินค้า SPayLater',
+        owner: owner,
+        totalInstallments: instNum,
+        remainingInstallments: instNum,
+        monthlyPayment: monthNum,
+        remainingAmount: totalVal,
+        payerType: owner === 'ตัวเอง' ? 'WE_PAY' : 'THEY_PAY',
+        status: 'ACTIVE',
+        startDate: new Date().toISOString()
+      };
+
+      const newDebt = {
+        id: `SPAY-${Date.now().toString().slice(-4)}`,
+        itemName: itemName || merchant || 'สินค้า SPayLater',
+        owner: owner,
+        category: 'SPAYLATER',
+        remainingAmount: totalVal,
+        monthlyPayment: monthNum,
+        remainingInstallments: instNum,
+        payerType: owner === 'ตัวเอง' ? 'WE_PAY' : 'THEY_PAY',
+        status: 'ACTIVE'
+      };
+
+      let nextData = {
+        ...sotData,
+        bnplItems: [newBnpl, ...(sotData.bnplItems || [])],
+        debts: [newDebt, ...(sotData.debts || [])]
+      };
+
+      nextData = addAuditEvent(nextData, 'SLIP_OCR', bankRef, 'BNPL_ITEM_ADDED', {
+        itemName: newBnpl.itemName,
+        owner,
+        totalAmount: totalVal,
+        monthlyPayment: monthNum
+      });
+
+      updateSOTData(nextData);
+      toast(`🛍️ เพิ่มรายการผ่อน [${newBnpl.itemName}] เข้า Debt Tracker เรียบร้อยแล้ว!`, { type: 'success' });
+      setScannedResult(null);
+      setPreviewUrl(null);
+      return;
+    }
+
     if (isNaN(numAmount) || numAmount <= 0) {
       toast('⚠️ กรุณาระบุยอดเงินให้ถูกต้อง', { type: 'error' });
       return;
@@ -103,7 +164,6 @@ export default function SlipScanner({ sotData, updateSOTData }) {
 
     let updatedAccounts = [...(sotData.accounts || [])];
     let updatedDebts = [...(sotData.debts || [])];
-    let txType = actionType;
     let noteText = merchant + (customNote ? ` (${customNote})` : '') + ` [Ref: ${bankRef}]`;
 
     // 1. If EXPENSE -> deduct from selectedAccount
@@ -333,7 +393,7 @@ export default function SlipScanner({ sotData, updateSOTData }) {
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
                   ประเภทการทำรายการ:
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px' }}>
                   <button
                     type="button"
                     onClick={() => setActionType('EXPENSE')}
@@ -370,6 +430,23 @@ export default function SlipScanner({ sotData, updateSOTData }) {
 
                   <button
                     type="button"
+                    onClick={() => setActionType('NEW_BNPL_ITEM')}
+                    style={{
+                      padding: '8px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      background: actionType === 'NEW_BNPL_ITEM' ? 'rgba(6, 182, 212, 0.2)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${actionType === 'NEW_BNPL_ITEM' ? 'var(--accent-cyan)' : 'var(--border-subtle)'}`,
+                      color: actionType === 'NEW_BNPL_ITEM' ? 'var(--accent-cyan)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    🛍️ เพิ่มผ่อนของ SPay
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setActionType('INCOME')}
                     style={{
                       padding: '8px',
@@ -387,73 +464,137 @@ export default function SlipScanner({ sotData, updateSOTData }) {
                 </div>
               </div>
 
-              {/* Amount Field */}
-              <div>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  ยอดเงินจากสลิป (บาท):
-                </label>
-                <input 
-                  type="number"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="เช่น 350.00"
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    fontSize: '1.3rem',
-                    fontWeight: 700,
-                    color: 'var(--accent-cyan)',
-                    background: 'rgba(0,0,0,0.5)',
-                    border: '1px solid var(--accent-cyan)',
-                    borderRadius: 'var(--radius-sm)'
-                  }}
-                />
-              </div>
+              {/* If NEW_BNPL_ITEM -> Show BNPL Custom Fields */}
+              {actionType === 'NEW_BNPL_ITEM' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '14px', borderRadius: 'var(--radius-sm)' }}>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', display: 'block', marginBottom: '4px' }}>
+                      📦 ชื่อสินค้าที่สั่งซื้อ:
+                    </label>
+                    <input 
+                      type="text"
+                      value={itemName}
+                      onChange={(e) => setItemName(e.target.value)}
+                      placeholder="เช่น Sony WH-1000XM5, ลำโพงบลูทูธ"
+                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
+                    />
+                  </div>
 
-              {/* Merchant / Receiver */}
-              <div>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  ร้านค้า / ผู้รับโอน / บันทึก:
-                </label>
-                <input 
-                  type="text"
-                  value={merchant}
-                  onChange={(e) => setMerchant(e.target.value)}
-                  placeholder="เช่น GrabFood, 7-Eleven, ShopeePay"
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    background: 'rgba(0,0,0,0.4)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: '#fff'
-                  }}
-                />
-              </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                        จำนวนงวดทั้งหมด:
+                      </label>
+                      <input 
+                        type="number"
+                        value={totalInstallments}
+                        onChange={(e) => setTotalInstallments(e.target.value)}
+                        placeholder="เช่น 3 หรือ 5"
+                        style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
+                      />
+                    </div>
 
-              {/* Account Selector */}
-              <div>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  {actionType === 'INCOME' ? 'ฝากเข้ากระเป๋า:' : 'ตัดจ่ายจากกระเป๋า:'}
-                </label>
-                <select 
-                  value={selectedAccount} 
-                  onChange={(e) => setSelectedAccount(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    background: 'rgba(0,0,0,0.5)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: '#fff'
-                  }}
-                >
-                  {(sotData.accounts || []).map(a => (
-                    <option key={a.id} value={a.id}>{a.name} (คงเหลือ ฿{a.balance.toLocaleString()})</option>
-                  ))}
-                </select>
-              </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                        ค่างวดต่อเดือน (บาท):
+                      </label>
+                      <input 
+                        type="number"
+                        step="0.01"
+                        value={monthlyPayment}
+                        onChange={(e) => setMonthlyPayment(e.target.value)}
+                        placeholder="เช่น 2370.52"
+                        style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-cyan)', fontWeight: 600 }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                      ใครเป็นเจ้าของ / ผู้รับผิดชอบยอดผ่อน:
+                    </label>
+                    <select 
+                      value={owner} 
+                      onChange={(e) => setOwner(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
+                    >
+                      <option value="ตัวเอง">🙋‍♂️ ตัวเอง (นับเป็นหนี้สินส่วนตัว)</option>
+                      <option value="พี่แพร">👩 พี่แพร (พี่แพรโอนเงินคืนเราทุกงวด)</option>
+                      <option value="บ้าน">🏠 บ้าน / คุณแม่</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Amount Field */}
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                      ยอดเงินจากสลิป (บาท):
+                    </label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      placeholder="เช่น 350.00"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        fontSize: '1.3rem',
+                        fontWeight: 700,
+                        color: 'var(--accent-cyan)',
+                        background: 'rgba(0,0,0,0.5)',
+                        border: '1px solid var(--accent-cyan)',
+                        borderRadius: 'var(--radius-sm)'
+                      }}
+                    />
+                  </div>
+
+                  {/* Merchant / Receiver */}
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                      ร้านค้า / ผู้รับโอน / บันทึก:
+                    </label>
+                    <input 
+                      type="text"
+                      value={merchant}
+                      onChange={(e) => setMerchant(e.target.value)}
+                      placeholder="เช่น GrabFood, 7-Eleven, ShopeePay"
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        background: 'rgba(0,0,0,0.4)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: '#fff'
+                      }}
+                    />
+                  </div>
+
+                  {/* Account Selector */}
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                      {actionType === 'INCOME' ? 'ฝากเข้ากระเป๋า:' : 'ตัดจ่ายจากกระเป๋า:'}
+                    </label>
+                    <select 
+                      value={selectedAccount} 
+                      onChange={(e) => setSelectedAccount(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        background: 'rgba(0,0,0,0.5)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: '#fff'
+                      }}
+                    >
+                      {(sotData.accounts || []).map(a => (
+                        <option key={a.id} value={a.id}>{a.name} (คงเหลือ ฿{a.balance.toLocaleString()})</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
 
               {/* If Debt Payment -> Select Debt */}
               {actionType === 'DEBT_PAYMENT' && (

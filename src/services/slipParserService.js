@@ -107,13 +107,45 @@ export function extractSlipDetailsFromText(rawText) {
     detectedBankRef = 'SLIP-' + Date.now().toString().slice(-8);
   }
 
-  // 4. Smart Categorization & Suggested Action
+  // 4. SPayLater & BNPL Special Extraction
+  let detectedItemName = '';
+  let detectedInstallments = 0;
+  let detectedMonthlyAmount = 0;
+  let detectedOwner = 'ตัวเอง';
+
+  // Check for installments e.g., "3 เดือน", "งวดละ ฿2,370.52", "x 5 งวด"
+  const installmentRegex = /(?:ผ่อน|งวด|จำนวนงวด|ระยะเวลาผ่อน)[^\d]*(\d+)\s*(?:งวด|เดือน)/i;
+  const instMatch = rawText.match(installmentRegex);
+  if (instMatch && instMatch[1]) {
+    detectedInstallments = parseInt(instMatch[1]);
+  }
+
+  const monthlyRegex = /(?:งวดละ|ต่อเดือน|Monthly)[^\d]*([\d,]+\.?\d*)/i;
+  const monthMatch = rawText.match(monthlyRegex);
+  if (monthMatch && monthMatch[1]) {
+    detectedMonthlyAmount = parseFloat(monthMatch[1].replace(/,/g, ''));
+  }
+
+  // Check for item names in Shopee
+  const itemMatch = rawText.match(/(?:สินค้า|Item|คำสั่งซื้อ|Order)[^\n\r]*[:：]?\s*([^\n\r]+)/i);
+  if (itemMatch && itemMatch[1]) {
+    detectedItemName = itemMatch[1].trim().slice(0, 50);
+  }
+
+  // 5. Smart Categorization & Suggested Action
   const lower = rawText.toLowerCase() + ' ' + detectedMerchant.toLowerCase();
   
-  if (lower.includes('spay') || lower.includes('shopee') || lower.includes('ผ่อน') || lower.includes('หนี้') || lower.includes('งวด')) {
+  if (lower.includes('spay') || lower.includes('shopee') || lower.includes('ผ่อน') || lower.includes('หนี้') || lower.includes('งวด') || lower.includes('บิลของฉัน')) {
     detectedCategory = 'SHOPPING_BNPL';
-    suggestedAction = 'DEBT_PAYMENT';
-    matchedDebtId = 'SPAY-01';
+    
+    // If it looks like a new purchase order
+    if (detectedInstallments > 1 || rawText.includes('สั่งซื้อสำเร็จ') || rawText.includes('คำสั่งซื้อ')) {
+      suggestedAction = 'NEW_BNPL_ITEM';
+      detectedMerchant = detectedItemName || 'สินค้า Shopee SPayLater';
+    } else {
+      suggestedAction = 'DEBT_PAYMENT';
+      matchedDebtId = 'SPAY-01';
+    }
   } else if (lower.includes('อาหาร') || lower.includes('grab') || lower.includes('food') || lower.includes('หมูกระทะ') || lower.includes('กาแฟ') || lower.includes('cafe')) {
     detectedCategory = 'FOOD';
     suggestedAction = 'EXPENSE';
@@ -123,15 +155,21 @@ export function extractSlipDetailsFromText(rawText) {
   } else if (lower.includes('บ้าน') || lower.includes('แม่') || lower.includes('แพร') || lower.includes('ครอบครัว')) {
     detectedCategory = 'FAMILY';
     suggestedAction = 'EXPENSE';
+    if (lower.includes('แพร')) detectedOwner = 'พี่แพร';
+    if (lower.includes('แม่') || lower.includes('บ้าน')) detectedOwner = 'บ้าน';
   }
 
   return {
-    amount: detectedAmount,
+    amount: detectedAmount || (detectedMonthlyAmount && detectedInstallments ? detectedMonthlyAmount * detectedInstallments : 0),
     merchant: detectedMerchant,
     bankRef: detectedBankRef,
     detectedCategory,
     suggestedAction,
     matchedDebtId,
+    detectedItemName: detectedItemName || detectedMerchant,
+    detectedInstallments: detectedInstallments || 1,
+    detectedMonthlyAmount: detectedMonthlyAmount || (detectedAmount && detectedInstallments ? detectedAmount / detectedInstallments : detectedAmount),
+    detectedOwner,
     confidence: detectedAmount > 0 ? 0.92 : 0.60
   };
 }
