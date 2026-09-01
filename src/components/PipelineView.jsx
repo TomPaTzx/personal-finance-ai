@@ -58,10 +58,24 @@ export default function PipelineView({ sotData, updateSOTData }) {
       createdAt: new Date().toISOString()
     };
 
-    // Run Dual Advisors (Sonar & Best)
+    // Run Dual Advisors (Sonar & Best) + Jason
     const verdict = runDualAdvisorAnalysis(newDrop, sotData);
     newDrop.verdict = verdict;
 
+    // Persist directly into SOT (Single Source of Truth) database & Audit Log
+    const updatedDrops = [newDrop, ...(sotData.pipelineDrops || []).filter(d => d.hash !== hash)];
+    let nextData = {
+      ...sotData,
+      pipelineDrops: updatedDrops
+    };
+    nextData = addAuditEvent(nextData, 'PIPELINE_DROP', newDrop.id, 'DROP_INGESTED', {
+      rawText: inputText,
+      dropType: triageResult.dropType,
+      category: triageResult.category,
+      recommendedAmount: verdict.recommendedAmount || triageResult.amount || 0
+    });
+
+    updateSOTData(nextData);
     setCurrentDrop(newDrop);
     setIsProcessing(false);
     setInputText('');
@@ -274,6 +288,45 @@ export default function PipelineView({ sotData, updateSOTData }) {
             <span>หมวดหมู่: <b style={{ color: '#ffffff' }}>{currentDrop.category}</b></span>
             <span>ประเภท: <b style={{ color: '#ffffff' }}>{currentDrop.dropType}</b></span>
           </div>
+
+          {/* If FINANCIAL_CONSULTATION: Render Live Financial Reality KPI Bar */}
+          {currentDrop.verdict?.financialSnapshot && (
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
+              gap: '10px', 
+              marginBottom: '18px',
+              background: 'rgba(0, 0, 0, 0.35)',
+              border: '1px solid var(--border-subtle)',
+              padding: '12px 16px',
+              borderRadius: 'var(--radius-sm)'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>💵 เงินสดสภาพคล่องรวมทุกบัญชี</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff', marginTop: '2px' }}>
+                  ฿{currentDrop.verdict.financialSnapshot.totalLiquidCash.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>💼 เงินเดือนฐานสุทธิชลประทาน</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--accent-cyan)', marginTop: '2px' }}>
+                  ฿{currentDrop.verdict.financialSnapshot.baseNetSalary.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>🔒 ภาระบิลบังคับรวม (บ้าน+หนี้+เน็ต)</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--accent-rose)', marginTop: '2px' }}>
+                  ฿{(currentDrop.verdict.financialSnapshot.homeBillNetWePay + currentDrop.verdict.financialSnapshot.myMonthlyDebt + currentDrop.verdict.financialSnapshot.kbankDirectSubs).toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>📈 คาดการณ์เงินโอที (เย็น+เสาร์)</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--accent-emerald)', marginTop: '2px' }}>
+                  +฿{currentDrop.verdict.financialSnapshot.totalExpectedOt.toLocaleString()}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* If FINANCIAL_CONSULTATION: Render Coach Summary Banner */}
           {currentDrop.verdict?.coachSummary && (

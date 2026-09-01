@@ -26,10 +26,10 @@ export const INITIAL_DATA = {
     },
     {
       id: 'KBANK-FOOD',
-      name: 'กระเป๋า 2: ค่ากินแซ่บ & สังสรรค์',
+      name: 'กระเป๋า 2: ค่ากินแซ่บ แซลมอน & บุฟเฟต์คลายเครียด',
       bank: 'กสิกร (MAKE)',
       category: 'FOOD_CRAVING',
-      purpose: 'กินของอร่อยที่อยากกิน บุฟเฟต์ Shinkanzen โลตัสติวานนท์ + เบียร์สังสรรค์เพื่อน',
+      purpose: 'งบแซลมอน บุฟเฟต์ Shinkanzen โลตัสติวานนท์ & สังสรรค์บำรุงสุขภาพจิต (รางวัลเลิกบุหรี่เพื่อลูก)',
       balance: 3000,
       currency: 'THB',
       updatedAt: new Date().toISOString()

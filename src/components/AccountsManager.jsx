@@ -821,12 +821,12 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                 <div style={{ background: 'rgba(0, 0, 0, 0.4)', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                     <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent-emerald)' }}>
-                      🍜 ค่ากินแซ่บ & สังสรรค์
+                      🍣 ค่ากินแซ่บ แซลมอน & บุฟเฟต์คลายเครียด
                     </span>
                     <span className="badge badge-emerald" style={{ fontSize: '0.7rem' }}>KBANK-FOOD</span>
                   </div>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px', minHeight: '30px' }}>
-                    บุฟเฟต์ Shinkanzen, มื้อพิเศษ, เบียร์คลายเครียดกับเพื่อน
+                    แซลมอน, บุฟเฟต์ Shinkanzen โลตัสติวานนท์ & บำรุงสุขภาพจิต (รางวัลเลิกบุหรี่เพื่อลูก)
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>งบ: ฿</span>
