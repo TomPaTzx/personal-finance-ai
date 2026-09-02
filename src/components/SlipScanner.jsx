@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, 
   CheckCircle, 
@@ -18,13 +18,18 @@ import {
   ArrowUpRight,
   TrendingDown,
   TrendingUp,
-  Tag
+  Tag,
+  BrainCircuit,
+  Key,
+  Mail
 } from 'lucide-react';
 import { performSlipOCR } from '../services/slipParserService';
+import { analyzeSlipWithGeminiVision, getStoredGeminiApiKey, getStoredGeminiModel } from '../services/geminiVisionService';
 import { addAuditEvent } from '../services/storageService';
+import { supabase } from '../services/supabaseClient';
 import { useModalNotification } from '../context/ModalNotificationContext';
 
-export default function SlipScanner({ sotData, updateSOTData }) {
+export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) {
   const { confirm: modalConfirm, toast } = useModalNotification();
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState('');
@@ -48,6 +53,70 @@ export default function SlipScanner({ sotData, updateSOTData }) {
   const [owner, setOwner] = useState('ตัวเอง');
 
   const fileInputRef = useRef(null);
+  const geminiApiKey = getStoredGeminiApiKey();
+  const geminiModel = getStoredGeminiModel();
+
+  // Live Email Ingestion State (Make.com Automation)
+  const [emailInbox, setEmailInbox] = useState(null);
+  const [isLoadingEmail, setIsLoadingEmail] = useState(false);
+
+  const fetchEmailInbox = async () => {
+    setIsLoadingEmail(true);
+    try {
+      const { data } = await supabase
+        .from('app_state')
+        .select('*')
+        .eq('id', 'EMAIL_INBOX')
+        .single();
+      if (data && data.data && data.data.subject) {
+        setEmailInbox(data.data);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch EMAIL_INBOX:', e);
+    } finally {
+      setIsLoadingEmail(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmailInbox();
+  }, []);
+
+  // Intelligent parser for K PLUS / Thai bank transaction email body
+  const parseKPlusEmailText = (rawText) => {
+    if (!rawText) return null;
+    const cleanText = rawText.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+
+    // Amount: e.g. "จำนวนเงิน (บาท): 432.00" or "Amount (THB): 432.00"
+    const amountMatch = cleanText.match(/จำนวนเงิน\s*\((?:บาท|THB)\):\s*([\d,]+\.?\d*)/i) || 
+                        cleanText.match(/Amount\s*\((?:THB|บาท)\):\s*([\d,]+\.?\d*)/i);
+    const parsedAmount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : null;
+
+    // Receiver: e.g. "ชื่อบัญชี: นาย กษิดิษ รุจาคม" or "Account Name: MR. KASIDIT RUJARKOM"
+    const nameMatch = cleanText.match(/ชื่อบัญชี:\s*([^\r\n]+)/) || cleanText.match(/Account Name:\s*([^\r\n]+)/i);
+    const receiverName = nameMatch ? nameMatch[1].trim() : '';
+
+    // Ref: e.g. "เลขที่รายการ: 016245133006ATF06040"
+    const refMatch = cleanText.match(/เลขที่รายการ:\s*([^\r\n]+)/) || cleanText.match(/Transaction Number:\s*([^\r\n]+)/i);
+    const txRef = refMatch ? refMatch[1].trim() : '';
+
+    // Balance: e.g. "ยอดถอนได้ (บาท): 518.00"
+    const balanceMatch = cleanText.match(/ยอดถอนได้\s*\((?:บาท|THB)\):\s*([\d,]+\.?\d*)/i) || 
+                         cleanText.match(/Available Balance\s*\((?:THB|บาท)\):\s*([\d,]+\.?\d*)/i);
+    const availableBalance = balanceMatch ? parseFloat(balanceMatch[1].replace(/,/g, '')) : null;
+
+    // Date: e.g. "วันที่ทำรายการ: 02/09/2026 13:30:06"
+    const dateMatch = cleanText.match(/วันที่ทำรายการ:\s*([^\r\n]+)/) || cleanText.match(/Transaction Date:\s*([^\r\n]+)/i);
+    const txDate = dateMatch ? dateMatch[1].trim() : '';
+
+    return {
+      amount: parsedAmount,
+      receiverName,
+      txRef,
+      availableBalance,
+      txDate
+    };
+  };
 
   // Handle Real File Selection / Drag-Drop
   const handleFileChange = async (file) => {
@@ -62,38 +131,92 @@ export default function SlipScanner({ sotData, updateSOTData }) {
     const preview = URL.createObjectURL(file);
     setPreviewUrl(preview);
     setIsScanning(true);
-    setScanProgress('กำลังเตรียมไฟล์ภาพ...');
 
-    const res = await performSlipOCR(file, (msg) => setScanProgress(msg));
-    setIsScanning(false);
-    setScanProgress('');
+    let parsedSuccess = false;
 
-    if (res.success && res.data) {
-      setScannedResult(res.data);
-      setAmount(res.data.amount > 0 ? res.data.amount.toString() : '');
-      setMerchant(res.data.merchant || '');
-      setBankRef(res.data.bankRef || '');
-      setCategory(res.data.detectedCategory || 'FOOD');
-      setActionType(res.data.suggestedAction || 'EXPENSE');
-      if (res.data.matchedDebtId) setSelectedDebtId(res.data.matchedDebtId);
-      if (res.data.detectedItemName) setItemName(res.data.detectedItemName);
-      if (res.data.detectedInstallments) setTotalInstallments(res.data.detectedInstallments.toString());
-      if (res.data.detectedMonthlyAmount) setMonthlyPayment(res.data.detectedMonthlyAmount.toString());
-      if (res.data.detectedOwner) setOwner(res.data.detectedOwner);
-      
-      toast('✨ สแกนสลิป/บิลสำเร็จ! กรุณาตรวจสอบข้อมูลก่อนกดยืนยัน', { type: 'success' });
-    } else {
-      toast(`⚠️ สแกนสลิปไม่สำเร็จ: ${res.error || 'ไม่พบข้อความ'}`, { type: 'error' });
-      setScannedResult({
-        merchant: 'รายการจากสลิป',
-        amount: 0,
-        bankRef: 'SLIP-' + Date.now().toString().slice(-6),
-        detectedCategory: 'FOOD'
-      });
-      setAmount('');
-      setMerchant('รายการจากสลิป');
-      setBankRef('SLIP-' + Date.now().toString().slice(-6));
+    // 1. Try Gemini Multimodal Vision if API Key is configured
+    if (geminiApiKey) {
+      try {
+        setScanProgress(`🧠 กำลังส่งภาพให้ ${geminiModel} วิเคราะห์...`);
+        const geminiRes = await analyzeSlipWithGeminiVision(file, {
+          accounts: sotData.accounts,
+          debts: sotData.debts,
+          bnplItems: sotData.bnplItems
+        });
+
+        if (geminiRes.success && geminiRes.data) {
+          const gData = geminiRes.data;
+          setScannedResult({
+            ...gData,
+            modelUsed: geminiRes.modelUsed,
+            isGeminiVision: true
+          });
+
+          setAmount(gData.amount > 0 ? gData.amount.toString() : '');
+          setMerchant(gData.merchantOrReceiver || gData.title || '');
+          setBankRef(gData.transactionRef || 'GEMINI-' + Date.now().toString().slice(-6));
+          setActionType(gData.suggestedAction || 'EXPENSE');
+
+          if (gData.suggestedAccountId) {
+            setSelectedAccount(gData.suggestedAccountId);
+          } else if (gData.documentType === 'SPAYLATER_STATEMENT') {
+            setSelectedAccount('KBANK-SPAY');
+          } else {
+            setSelectedAccount('KBANK-FOOD');
+          }
+
+          if (gData.lineItems && gData.lineItems.length > 0) {
+            setItemName(gData.lineItems[0].name || '');
+          }
+
+          toast(`✨ วิเคราะห์ด้วย ${geminiRes.modelUsed} สำเร็จ!`, { type: 'success' });
+          parsedSuccess = true;
+        }
+      } catch (geminiErr) {
+        console.warn('Gemini Vision failed, falling back to Local OCR:', geminiErr);
+        toast(`⚠️ เชื่อมต่อ AI ไม่สำเร็จ (${geminiErr.message}): กำลังสลับไปใช้ Local OCR สำรอง...`, { type: 'info' });
+      }
     }
+
+    // 2. Fallback to Local OCR (Tesseract + jsQR) if Gemini was not run or failed
+    if (!parsedSuccess) {
+      setScanProgress('🔍 กำลังใช้ Local OCR & QR Code ถอดรหัส...');
+      const res = await performSlipOCR(file, (msg) => setScanProgress(msg));
+
+      if (res.success && res.data) {
+        setScannedResult({
+          ...res.data,
+          isGeminiVision: false,
+          modelUsed: 'Local Tesseract + QR Engine'
+        });
+        setAmount(res.data.amount > 0 ? res.data.amount.toString() : '');
+        setMerchant(res.data.merchant || '');
+        setBankRef(res.data.bankRef || '');
+        setCategory(res.data.detectedCategory || 'FOOD');
+        setActionType(res.data.suggestedAction || 'EXPENSE');
+        if (res.data.matchedDebtId) setSelectedDebtId(res.data.matchedDebtId);
+        if (res.data.detectedItemName) setItemName(res.data.detectedItemName);
+        if (res.data.detectedInstallments) setTotalInstallments(res.data.detectedInstallments.toString());
+        if (res.data.detectedMonthlyAmount) setMonthlyPayment(res.data.detectedMonthlyAmount.toString());
+        if (res.data.detectedOwner) setOwner(res.data.detectedOwner);
+        
+        toast('✨ สแกนสลิปด้วย Local OCR สำเร็จ!', { type: 'success' });
+      } else {
+        toast(`⚠️ สแกนสลิปไม่สำเร็จ: ${res.error || 'ไม่พบข้อความ'}`, { type: 'error' });
+        setScannedResult({
+          merchant: 'รายการจากสลิป',
+          amount: 0,
+          bankRef: 'SLIP-' + Date.now().toString().slice(-6),
+          detectedCategory: 'FOOD',
+          isGeminiVision: false
+        });
+        setAmount('');
+        setMerchant('รายการจากสลิป');
+        setBankRef('SLIP-' + Date.now().toString().slice(-6));
+      }
+    }
+
+    setIsScanning(false);
   };
 
   const handleDrop = (e) => {
@@ -292,6 +415,125 @@ export default function SlipScanner({ sotData, updateSOTData }) {
         </div>
       </div>
 
+      {/* Live Email Ingestion Banner (Make.com Automation) */}
+      {emailInbox && (() => {
+        const parsed = parseKPlusEmailText(emailInbox.text || emailInbox.snippet);
+        return (
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(6, 182, 212, 0.1))',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '16px 20px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '14px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ flex: 1, minWidth: '280px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <span className="badge badge-emerald" style={{ fontSize: '0.7rem' }}>🟢 Make.com ส่งสดเข้าแอป</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Mail size={16} color="var(--accent-emerald)" />
+                  {emailInbox.subject || 'แจ้งเตือนการเงิน'}
+                </span>
+                {parsed?.txDate && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>🕒 {parsed.txDate}</span>
+                )}
+              </div>
+
+              {parsed?.amount ? (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap', marginTop: '4px' }}>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--accent-emerald)' }}>
+                    ฿{parsed.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  {parsed.receiverName && (
+                    <div style={{ fontSize: '0.82rem', color: '#fff' }}>
+                      โอนให้: <strong>{parsed.receiverName}</strong>
+                    </div>
+                  )}
+                  {parsed.availableBalance !== null && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)' }}>
+                      (คงเหลือในบัญชี: ฿{parsed.availableBalance.toLocaleString()})
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '700px', lineHeight: 1.4, margin: '4px 0 0 0' }}>
+                  {emailInbox.snippet || 'ได้รับข้อมูลแจ้งเตือนตัดเงินสำเร็จจาก K PLUS'}
+                </p>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                onClick={fetchEmailInbox}
+                className="btn btn-outline"
+                disabled={isLoadingEmail}
+                style={{ fontSize: '0.75rem', padding: '8px 12px' }}
+                title="รีเฟรชอีเมลล่าสุด"
+              >
+                <RefreshCw size={14} className={isLoadingEmail ? 'animate-spin' : ''} />
+              </button>
+              <button
+                onClick={() => {
+                  if (parsed?.amount) {
+                    setAmount(parsed.amount.toString());
+                    setMerchant(parsed.receiverName || 'K PLUS Transfer');
+                    setBankRef(parsed.txRef || '');
+                    setCustomNote(`โอนเงินสำเร็จ ${parsed.txDate} (คงเหลือ ฿${parsed.availableBalance?.toLocaleString()})`);
+                    setActionType('EXPENSE');
+                    toast(`⚡ ดึงยอด ฿${parsed.amount.toLocaleString()} โอนให้ [${parsed.receiverName}] ลงแบบฟอร์มแล้ว!`, { type: 'success' });
+                  } else {
+                    setMerchant(emailInbox.subject || 'K PLUS Bill Payment');
+                    setCustomNote(emailInbox.snippet || '');
+                    toast('📋 ดึงข้อความจากอีเมลมาลงในแบบฟอร์มแล้ว! ใส่ยอดเงินแล้วกดยืนยันได้ทันที', { type: 'success' });
+                  }
+                }}
+                className="btn btn-success"
+                style={{ fontSize: '0.85rem', padding: '8px 16px', fontWeight: 700 }}
+              >
+                ⚡ ดึงยอด ฿{parsed?.amount ? parsed.amount.toLocaleString() : ''} ลงฟอร์ม
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* AI Vision Engine Status & Settings Bar */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        background: geminiApiKey ? 'rgba(168, 85, 247, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+        border: `1px solid ${geminiApiKey ? 'rgba(168, 85, 247, 0.25)' : 'rgba(255, 255, 255, 0.08)'}`,
+        padding: '10px 16px',
+        borderRadius: 'var(--radius-sm)',
+        flexWrap: 'wrap',
+        gap: '10px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <BrainCircuit size={18} color={geminiApiKey ? "var(--accent-purple)" : "var(--text-muted)"} />
+          <span style={{ fontSize: '0.85rem', color: '#fff', fontWeight: 600 }}>
+            {geminiApiKey ? `🧠 Gemini Multimodal Vision (${geminiModel})` : '🔍 โหมดพื้นฐาน: Local OCR & QR Code'}
+          </span>
+          {geminiApiKey ? (
+            <span className="badge badge-purple" style={{ fontSize: '0.65rem' }}>AI Vision Active</span>
+          ) : (
+            <span className="badge badge-slate" style={{ fontSize: '0.65rem' }}>ออฟไลน์ / ไร้ API Key</span>
+          )}
+        </div>
+
+        <button 
+          onClick={onOpenSettings}
+          className="btn btn-secondary"
+          style={{ fontSize: '0.78rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <Key size={14} /> {geminiApiKey ? 'ตั้งค่าโมเดล / API Key' : 'ใส่ Gemini API Key (เปิดโหมดฉลาดเต็มขั้น)'}
+        </button>
+      </div>
+
       {/* Upload Drop Zone */}
       <div 
         onDragOver={(e) => e.preventDefault()}
@@ -351,7 +593,9 @@ export default function SlipScanner({ sotData, updateSOTData }) {
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="badge badge-emerald">✨ AI OCR DETECTED</span>
+              <span className={`badge ${scannedResult.isGeminiVision ? 'badge-purple' : 'badge-emerald'}`}>
+                {scannedResult.isGeminiVision ? `🧠 ${scannedResult.modelUsed || 'GEMINI VISION'}` : '✨ AI OCR DETECTED'}
+              </span>
               <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>เลขอ้างอิง: {bankRef || 'SLIP-AUTO'}</span>
             </div>
 
@@ -363,6 +607,52 @@ export default function SlipScanner({ sotData, updateSOTData }) {
               ยกเลิก
             </button>
           </div>
+
+          {/* Gemini Coach Wisdom */}
+          {scannedResult.coachWisdom && (
+            <div style={{
+              background: 'rgba(168, 85, 247, 0.1)',
+              border: '1px solid rgba(168, 85, 247, 0.3)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '12px 16px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px'
+            }}>
+              <Sparkles size={18} color="var(--accent-purple)" style={{ marginTop: '2px', flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-purple)', marginBottom: '2px' }}>
+                  คำแนะนำ The Money Coach (โดย {scannedResult.modelUsed}):
+                </div>
+                <div style={{ fontSize: '0.82rem', color: '#fff', lineHeight: 1.5 }}>
+                  {scannedResult.coachWisdom}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Line Items Breakdown (If any) */}
+          {scannedResult.lineItems && scannedResult.lineItems.length > 0 && (
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '10px 14px',
+              marginBottom: '16px'
+            }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                รายการย่อยที่ AI ตรวจพบในภาพ:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {scannedResult.lineItems.map((item, iIdx) => (
+                  <span key={iIdx} className="badge badge-slate" style={{ fontSize: '0.75rem', padding: '4px 8px' }}>
+                    {item.name} {item.amount > 0 ? `(฿${item.amount.toLocaleString()})` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
             

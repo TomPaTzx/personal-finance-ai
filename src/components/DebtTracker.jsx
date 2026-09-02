@@ -222,13 +222,36 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     toast(`🎉 ชำระบิล Shopee SPayLater ฿${currentStatementAmount.toLocaleString()} เรียบร้อยแล้ว! (บันทึกสถานะชำระแล้ว - ไม่ต้องกันเงินซ้ำ)`, { type: 'success' });
   };
 
+  // Helper for dynamic Thai billing cycle advance
+  const THAI_CYCLE_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+  const getNextSpayCycleString = (currentCycleStr) => {
+    let matchedIdx = 8; // Default September (8)
+    let year = 2026;
+    if (currentCycleStr) {
+      for (let i = 0; i < THAI_CYCLE_MONTHS.length; i++) {
+        if (currentCycleStr.includes(THAI_CYCLE_MONTHS[i])) {
+          matchedIdx = i;
+          break;
+        }
+      }
+    }
+    const nextIdx = (matchedIdx + 1) % 12;
+    const nextMonthName = THAI_CYCLE_MONTHS[nextIdx];
+    const nextYear = nextIdx === 0 ? year + 1 : year;
+    return `รอบ ${nextMonthName} ${nextYear} (ครบกำหนด 10 ${nextMonthName})`;
+  };
+
   // Open New Billing Cycle for SPayLater
   const handleStartNewStatementCycle = async () => {
+    const currentCycle = sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)';
+    const nextCycle = getNextSpayCycleString(currentCycle);
+
     const isConfirmed = await modalConfirm({
       title: '🔄 ยืนยันการเปิดรอบบิลใหม่',
-      message: 'ต้องการเปิดรอบบิลถัดไป (เช่น รอบ ก.ย. 2026) เพื่อเริ่มบันทึกบิลและคำนวณเงินกันรอบถัดไปใช่หรือไม่?',
+      message: `ต้องการเปิดรอบบิลถัดไป (${nextCycle}) เพื่อเริ่มบันทึกบิลและคำนวณเงินกันรอบถัดไปใช่หรือไม่?`,
       variant: 'info',
-      confirmText: 'เปิดรอบบิลใหม่',
+      confirmText: `เปิด ${nextCycle}`,
       cancelText: 'ยกเลิก'
     });
     if (!isConfirmed) return;
@@ -237,13 +260,13 @@ export default function DebtTracker({ sotData, updateSOTData }) {
       ...sotData,
       spayStatementStatus: 'UNPAID',
       spayStatementPaidAt: null,
-      spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)'
+      spayStatementCycle: nextCycle
     };
     nextData = addAuditEvent(nextData, 'SPAYLATER', 'STATEMENT_CYCLE_ADVANCE', 'CYCLE_OPENED', {
-      newCycle: 'รอบ ก.ย. 2026'
+      newCycle: nextCycle
     });
     updateSOTData(nextData);
-    toast('🔄 เปิดรอบบิล ก.ย. 2026 เรียบร้อยแล้ว!', { type: 'success' });
+    toast(`🔄 เปิด ${nextCycle} เรียบร้อยแล้ว!`, { type: 'success' });
   };
 
   // Open Edit Modal for Long-Term Debts
@@ -547,10 +570,51 @@ export default function DebtTracker({ sotData, updateSOTData }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Receipt size={22} color={isSpayStatementPaid ? "var(--accent-emerald)" : "var(--accent-cyan)"} />
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                บิล Shopee SPayLater {sotData.spayStatementCycle || 'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff' }}>บิล Shopee SPayLater</span>
+                
+                {/* Cycle Selector Dropdown & Quick Advance Button */}
+                <select
+                  value={sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)'}
+                  onChange={(e) => {
+                    const nextCycle = e.target.value;
+                    updateSOTData({ ...sotData, spayStatementCycle: nextCycle });
+                    toast(`🔄 สลับรอบบิลเป็น ${nextCycle} เรียบร้อยแล้ว!`, { type: 'info' });
+                  }}
+                  style={{
+                    background: 'rgba(0, 0, 0, 0.6)',
+                    border: '1px solid var(--accent-cyan)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--accent-cyan)',
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
+                    padding: '4px 8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)">รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)</option>
+                  <option value="รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)">รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)</option>
+                  <option value="รอบ ต.ค. 2026 (ครบกำหนด 10 ต.ค.)">รอบ ต.ค. 2026 (ครบกำหนด 10 ต.ค.)</option>
+                  <option value="รอบ พ.ย. 2026 (ครบกำหนด 10 พ.ย.)">รอบ พ.ย. 2026 (ครบกำหนด 10 พ.ย.)</option>
+                  <option value="รอบ ธ.ค. 2026 (ครบกำหนด 10 ธ.ค.)">รอบ ธ.ค. 2026 (ครบกำหนด 10 ธ.ค.)</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextCycle = getNextSpayCycleString(sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)');
+                    updateSOTData({ ...sotData, spayStatementCycle: nextCycle });
+                    toast(`⏩ เลื่อนรอบบิลเป็น ${nextCycle} เรียบร้อยแล้ว!`, { type: 'success' });
+                  }}
+                  className="btn btn-outline"
+                  style={{ fontSize: '0.72rem', padding: '4px 8px', color: 'var(--accent-cyan)' }}
+                  title="เลื่อนไปรอบบิลถัดไป"
+                >
+                  ⏩ เลื่อนไปรอบถัดไป
+                </button>
+
                 {isSpayStatementPaid && <span className="badge badge-emerald" style={{ fontSize: '0.7rem' }}>🎉 ชำระเรียบร้อยแล้ว</span>}
-              </h2>
+              </div>
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
               {isSpayStatementPaid 

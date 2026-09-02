@@ -39,6 +39,8 @@ import GoalsAndAnalytics from './components/GoalsAndAnalytics';
 import MonthlyHistoryAndCoach from './components/MonthlyHistoryAndCoach';
 import CloudSyncModal from './components/CloudSyncModal';
 import SyncConflictModal from './components/SyncConflictModal';
+import CashflowSimulatorView from './components/CashflowSimulatorView';
+import GeminiSettingsModal from './components/GeminiSettingsModal';
 
 import { 
   loadSOTData, 
@@ -57,6 +59,7 @@ export default function App() {
   const [sotData, setSotData] = useState(() => loadSOTData());
   const [showResetModal, setShowResetModal] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
+  const [showGeminiSettingsModal, setShowGeminiSettingsModal] = useState(false);
   const [conflictData, setConflictData] = useState(null); // { local, cloud }
   const [confirmInput, setConfirmInput] = useState('');
   const [resetMode, setResetMode] = useState('ZERO'); // 'ZERO' or 'SOT_DEFAULT'
@@ -81,6 +84,7 @@ export default function App() {
       title: 'โค้ช & วางแผน (Coach & Goals)',
       items: [
         { id: 'coach', label: 'The Money Coach', icon: <TrendingUp size={18} className="nav-icon" />, badge: 'Coach' },
+        { id: 'cashflow', label: 'จำลองเงินสด 90 วัน', icon: <Sparkles size={18} className="nav-icon" />, badge: '30-90D' },
         { id: 'goals', label: 'เป้าหมายการเงิน', icon: <Target size={18} className="nav-icon" /> },
         { id: 'networth', label: 'สรุปความมั่งคั่ง', icon: <Activity size={18} className="nav-icon" /> }
       ]
@@ -558,6 +562,17 @@ export default function App() {
                   </strong>
                 </div>
               </div>
+
+              {/* Gemini AI Settings Quick Button */}
+              <button
+                onClick={() => setShowGeminiSettingsModal(true)}
+                className="btn btn-secondary"
+                title="ตั้งค่า Gemini Multimodal AI"
+                style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Sparkles size={14} color="var(--accent-purple)" />
+                <span>AI Vision</span>
+              </button>
             </div>
 
           </div>
@@ -567,13 +582,14 @@ export default function App() {
         <main style={{ maxWidth: '1400px', width: '100%', margin: '0 auto', padding: '24px', flex: 1 }}>
           {activeTab === 'pipeline' && <PipelineView sotData={sotData} updateSOTData={updateSOTData} />}
           {activeTab === 'coach' && <MonthlyHistoryAndCoach sotData={sotData} updateSOTData={updateSOTData} />}
+          {activeTab === 'cashflow' && <CashflowSimulatorView sotData={sotData} updateSOTData={updateSOTData} setActiveTab={setActiveTab} />}
           {activeTab === 'goals' && <GoalsAndAnalytics sotData={sotData} updateSOTData={updateSOTData} />}
           {activeTab === 'family' && <FamilySettlementHub sotData={sotData} updateSOTData={updateSOTData} />}
           {activeTab === 'subs' && <SubscriptionsManager sotData={sotData} updateSOTData={updateSOTData} />}
           {activeTab === 'networth' && <NetWorthDashboard sotData={sotData} />}
           {activeTab === 'accounts' && <AccountsManager sotData={sotData} updateSOTData={updateSOTData} />}
           {activeTab === 'debts' && <DebtTracker sotData={sotData} updateSOTData={updateSOTData} />}
-          {activeTab === 'scanner' && <SlipScanner sotData={sotData} updateSOTData={updateSOTData} />}
+          {activeTab === 'scanner' && <SlipScanner sotData={sotData} updateSOTData={updateSOTData} onOpenSettings={() => setShowGeminiSettingsModal(true)} />}
           {activeTab === 'scaffold' && <ScaffoldDocViewer />}
         </main>
 
@@ -736,6 +752,12 @@ export default function App() {
         cloudData={conflictData?.cloud}
         onResolveUsingLocal={handleResolveUsingLocal}
         onResolveUsingCloud={handleResolveUsingCloud}
+      />
+
+      {/* Gemini AI Settings Modal */}
+      <GeminiSettingsModal
+        isOpen={showGeminiSettingsModal}
+        onClose={() => setShowGeminiSettingsModal(false)}
       />
 
     </div>
