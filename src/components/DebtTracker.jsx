@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CreditCard, CheckCircle2, AlertCircle, Plus, Calendar, Percent, Edit3, ShoppingBag, ArrowRight, Sparkles, Receipt, Users, Check, Clock, Trash2, UserCheck, Smartphone } from 'lucide-react';
+import { CreditCard, CheckCircle2, AlertCircle, Plus, Calendar, Percent, Edit3, ShoppingBag, ArrowRight, Sparkles, Receipt, Users, Check, Clock, Trash2, UserCheck, Smartphone, RefreshCw } from 'lucide-react';
 import { addAuditEvent } from '../services/storageService';
 import { useModalNotification } from '../context/ModalNotificationContext';
 
@@ -45,10 +45,13 @@ export default function DebtTracker({ sotData, updateSOTData }) {
   const othersMonthlyDebt = othersDebts.reduce((sum, d) => sum + (d.monthlyPayment || 0), 0);
   const totalMonthlyBilled = myMonthlyDebt + othersMonthlyDebt;
 
-  // Dynamic BNPL Items
+  // Dynamic BNPL Items & SPayLater Statement Status
+  const isSpayStatementPaid = sotData.spayStatementStatus === 'PAID';
   const bnplItems = sotData.bnplItems || [];
-  const totalBnplAmount = bnplItems.reduce((sum, item) => sum + item.amount, 0);
-  const totalSpayStatement = totalBnplAmount + 5177.95; // ฿13,639.22
+  const pendingBnplItems = isSpayStatementPaid ? [] : bnplItems.filter(i => !i.isPaidInStatement);
+  const totalBnplAmount = pendingBnplItems.reduce((sum, item) => sum + item.amount, 0);
+  const totalMonthlySpayInstallments = 5177.95;
+  const totalSpayStatement = isSpayStatementPaid ? 0 : (totalBnplAmount + totalMonthlySpayInstallments);
 
   // Total pending collection from others (เพื่อน/ครอบครัวฝากซื้อที่ยังไม่ได้จ่ายเงินคืนเรา)
   const pendingCollectionFromOthers = bnplItems
@@ -158,9 +161,15 @@ export default function DebtTracker({ sotData, updateSOTData }) {
 
   // Settle Full SPayLater Statement
   const handlePayFullStatement = async () => {
+    if (isSpayStatementPaid) {
+      toast('บิล Shopee SPayLater รอบนี้ถูกชำระเรียบร้อยแล้วครับ', { type: 'info' });
+      return;
+    }
+
+    const currentStatementAmount = totalBnplAmount + totalMonthlySpayInstallments;
     const isConfirmed = await modalConfirm({
       title: '💳 ยืนยันการชำระบิล SPayLater เต็มจำนวน',
-      message: `ยืนยันการชำระบิล Shopee SPayLater เต็มจำนวน ฿${totalSpayStatement.toLocaleString()} (ตัดเงินจากกระเป๋า "กันเงินจ่าย Shopee SPayLater [KBANK-SPAY]")?`,
+      message: `ยืนยันการชำระบิล Shopee SPayLater เต็มจำนวน ฿${currentStatementAmount.toLocaleString()} (ตัดเงินจากกระเป๋า "กันเงินจ่าย Shopee SPayLater [KBANK-SPAY]")?`,
       variant: 'success',
       confirmText: 'ยืนยันชำระบิล',
       cancelText: 'ยกเลิก'
@@ -169,7 +178,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
 
     const updatedAccounts = sotData.accounts.map(acc => {
       if (acc.id === 'KBANK-SPAY') {
-        return { ...acc, balance: Math.max(0, acc.balance - totalSpayStatement), updatedAt: new Date().toISOString() };
+        return { ...acc, balance: Math.max(0, acc.balance - currentStatementAmount), updatedAt: new Date().toISOString() };
       }
       return acc;
     });
@@ -187,20 +196,54 @@ export default function DebtTracker({ sotData, updateSOTData }) {
       return d;
     });
 
+    const updatedBnpl = bnplItems.map(item => ({
+      ...item,
+      isPaidInStatement: true,
+      isPaidBack: true
+    }));
+
     let nextData = {
       ...sotData,
       accounts: updatedAccounts,
-      debts: updatedDebts
+      debts: updatedDebts,
+      bnplItems: updatedBnpl,
+      spayStatementStatus: 'PAID',
+      spayStatementPaidAt: new Date().toISOString(),
+      spayStatementLastPaidAmount: currentStatementAmount
     };
 
     nextData = addAuditEvent(nextData, 'SPAYLATER', 'STATEMENT_AUG_2026', 'STATEMENT_PAID_FULL', {
-      totalAmount: totalSpayStatement,
+      totalAmount: currentStatementAmount,
       bnplPortion: totalBnplAmount,
       installmentPortion: 5177.95
     });
 
     updateSOTData(nextData);
-    toast(`🎉 ชำระบิล Shopee SPayLater ฿${totalSpayStatement.toLocaleString()} เรียบร้อยแล้ว! ทุกรายการผ่อนถูกตัดไป 1 งวด`, { type: 'success' });
+    toast(`🎉 ชำระบิล Shopee SPayLater ฿${currentStatementAmount.toLocaleString()} เรียบร้อยแล้ว! (บันทึกสถานะชำระแล้ว - ไม่ต้องกันเงินซ้ำ)`, { type: 'success' });
+  };
+
+  // Open New Billing Cycle for SPayLater
+  const handleStartNewStatementCycle = async () => {
+    const isConfirmed = await modalConfirm({
+      title: '🔄 ยืนยันการเปิดรอบบิลใหม่',
+      message: 'ต้องการเปิดรอบบิลถัดไป (เช่น รอบ ก.ย. 2026) เพื่อเริ่มบันทึกบิลและคำนวณเงินกันรอบถัดไปใช่หรือไม่?',
+      variant: 'info',
+      confirmText: 'เปิดรอบบิลใหม่',
+      cancelText: 'ยกเลิก'
+    });
+    if (!isConfirmed) return;
+
+    let nextData = {
+      ...sotData,
+      spayStatementStatus: 'UNPAID',
+      spayStatementPaidAt: null,
+      spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)'
+    };
+    nextData = addAuditEvent(nextData, 'SPAYLATER', 'STATEMENT_CYCLE_ADVANCE', 'CYCLE_OPENED', {
+      newCycle: 'รอบ ก.ย. 2026'
+    });
+    updateSOTData(nextData);
+    toast('🔄 เปิดรอบบิล ก.ย. 2026 เรียบร้อยแล้ว!', { type: 'success' });
   };
 
   // Open Edit Modal for Long-Term Debts
@@ -503,26 +546,42 @@ export default function DebtTracker({ sotData, updateSOTData }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '18px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Receipt size={22} color="var(--accent-cyan)" />
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>
-                บิล Shopee SPayLater รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)
+              <Receipt size={22} color={isSpayStatementPaid ? "var(--accent-emerald)" : "var(--accent-cyan)"} />
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                บิล Shopee SPayLater {sotData.spayStatementCycle || 'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)'}
+                {isSpayStatementPaid && <span className="badge badge-emerald" style={{ fontSize: '0.7rem' }}>🎉 ชำระเรียบร้อยแล้ว</span>}
               </h2>
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              รวมยอด "ช้อปก่อนจ่ายทีหลัง (BNPL / ฝากซื้อ VIP)" + "ค่างวดผ่อนประจำเดือน"
+              {isSpayStatementPaid 
+                ? `ชำระเต็มจำนวนเรียบร้อยแล้วเมื่อ ${sotData.spayStatementPaidAt ? new Date(sotData.spayStatementPaidAt).toLocaleDateString('th-TH') : 'ล่าสุด'} (ยอดค้างชำระ: ฿0.00)`
+                : 'รวมยอด "ช้อปก่อนจ่ายทีหลัง (BNPL / ฝากซื้อ VIP)" + "ค่างวดผ่อนประจำเดือน"'}
             </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ยอดรวมที่ต้องชำระทั้งบิล</div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-rose)' }}>
-                ฿{totalSpayStatement.toLocaleString()}
+              <div style={{ fontSize: '0.75rem', color: isSpayStatementPaid ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
+                {isSpayStatementPaid ? 'สถานะรอบบิลนี้' : 'ยอดรวมที่ต้องชำระทั้งบิล'}
+              </div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: isSpayStatementPaid ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                {isSpayStatementPaid ? '฿0.00' : `฿${totalSpayStatement.toLocaleString()}`}
               </div>
             </div>
-            <button onClick={handlePayFullStatement} className="btn btn-success" style={{ padding: '12px 20px' }}>
-              <CheckCircle2 size={18} /> กดชำระบิลเต็มจำนวน
-            </button>
+            {isSpayStatementPaid ? (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button disabled className="btn btn-success" style={{ padding: '12px 18px', opacity: 0.9 }}>
+                  <CheckCircle2 size={18} /> ชำระบิลเต็มจำนวนแล้ว
+                </button>
+                <button onClick={handleStartNewStatementCycle} className="btn btn-secondary" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '6px' }} title="เริ่มบันทึกบิลรอบถัดไป">
+                  <RefreshCw size={16} /> เปิดรอบบิลใหม่
+                </button>
+              </div>
+            ) : (
+              <button onClick={handlePayFullStatement} className="btn btn-success" style={{ padding: '12px 20px' }}>
+                <CheckCircle2 size={18} /> กดชำระบิลเต็มจำนวน
+              </button>
+            )}
           </div>
         </div>
 

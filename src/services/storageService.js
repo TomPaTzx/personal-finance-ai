@@ -433,7 +433,10 @@ export const INITIAL_DATA = {
   pipelineDrops: [],
   transactions: [],
   auditEvents: [],
-  moneySavedTotal: 0
+  moneySavedTotal: 0,
+  spayStatementStatus: 'UNPAID',
+  spayStatementPaidAt: null,
+  spayStatementCycle: 'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)'
 };
 
 // Generate a Clean Slate with all accounts set to 0.00 balance
@@ -484,6 +487,9 @@ export const sanitizeSOTData = (parsed) => {
   return {
     ...INITIAL_DATA,
     ...parsed,
+    spayStatementStatus: parsed.spayStatementStatus || 'UNPAID',
+    spayStatementPaidAt: parsed.spayStatementPaidAt || null,
+    spayStatementCycle: parsed.spayStatementCycle || 'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)',
     accounts: parsed.accounts || INITIAL_DATA.accounts,
     debts: updatedDebts,
     bnplItems: parsed.bnplItems || INITIAL_DATA.bnplItems,

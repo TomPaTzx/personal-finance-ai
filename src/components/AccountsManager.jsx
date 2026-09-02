@@ -117,11 +117,18 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     setPayHomeBill(isHomePending);
     setHomeTargetAmount(liveHome);
 
-    // 2. SPayLater: Statement Bill is exactly ฿13,639.22 (includes Google One, CapCut, YouTube if on ShopeePay)
+    // 2. SPayLater: Statement Bill
+    const isSpayStatementPaid = sotData.spayStatementStatus === 'PAID';
     const spayAcc = accounts.find(a => a.id === 'KBANK-SPAY') || { balance: 0 };
-    const fullSpayStatement = 13639.22;
+    
+    // Dynamic statement total from DebtTracker / SOT (0 if already paid)
+    const currentBnplTotal = (sotData.bnplItems || [])
+      .filter(i => !isSpayStatementPaid && !i.isPaidInStatement)
+      .reduce((sum, item) => sum + item.amount, 0);
+    const fullSpayStatement = isSpayStatementPaid ? 0 : (currentBnplTotal + 5177.95);
+
     const spayGap = Math.max(0, Math.round((fullSpayStatement - (spayAcc.balance || 0)) * 100) / 100);
-    const isSpayNeeded = spayGap > 0;
+    const isSpayNeeded = !isSpayStatementPaid && spayGap > 0;
 
     // Default allocation towards SPay from this inflow
     const subsCost = totalKBankDirectSubs;
@@ -679,17 +686,30 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                 
                 {/* Bill 1: SPayLater */}
                 {(() => {
+                  const isSpaySettled = sotData.spayStatementStatus === 'PAID';
                   const spayAcc = accounts.find(a => a.id === 'KBANK-SPAY') || { balance: 0 };
-                  const fullSpayStatement = 13639.22;
+                  const currentBnpl = (sotData.bnplItems || [])
+                    .filter(i => !isSpaySettled && !i.isPaidInStatement)
+                    .reduce((sum, item) => sum + item.amount, 0);
+                  const fullSpayStatement = isSpaySettled ? 0 : (currentBnpl + 5177.95);
                   const isSpayFunded = (spayAcc.balance || 0) >= fullSpayStatement;
                   const gap = Math.max(0, Math.round((fullSpayStatement - (spayAcc.balance || 0)) * 100) / 100);
 
                   return (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0, 0, 0, 0.4)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      background: isSpaySettled ? 'rgba(16, 185, 129, 0.05)' : 'rgba(0, 0, 0, 0.4)', 
+                      padding: '10px 14px', 
+                      borderRadius: 'var(--radius-sm)', 
+                      border: isSpaySettled ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(255, 255, 255, 0.05)' 
+                    }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: isSpaySettled ? 'default' : 'pointer' }}>
                         <input
                           type="checkbox"
-                          checked={paySpayBill}
+                          disabled={isSpaySettled}
+                          checked={!isSpaySettled && paySpayBill}
                           onChange={(e) => {
                             setPaySpayBill(e.target.checked);
                             autoCalculateSpendingSplit(inflowAmount, e.target.checked);
@@ -698,17 +718,21 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                         />
                         <div>
                           <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            💳 บิล Shopee SPayLater ยอดเต็ม (ตัดรอบ 10 ก.ย.)
-                            {isSpayFunded ? (
+                            💳 บิล Shopee SPayLater {sotData.spayStatementCycle || 'รอบ ส.ค. 2026'}
+                            {isSpaySettled ? (
+                              <span className="badge badge-emerald" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>🎉 ชำระบิลรอบนี้แล้ว</span>
+                            ) : isSpayFunded ? (
                               <span className="badge badge-emerald" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>กันไว้ครบ 100% แล้ว</span>
                             ) : (
                               <span className="badge badge-rose" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>ยอดเต็ม ฿{fullSpayStatement.toLocaleString()}</span>
                             )}
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: isSpayFunded ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
-                            {isSpayFunded 
-                              ? `ในกระเป๋า [KBANK-SPAY] มีเงินกันไว้ครบแล้ว ฿${(spayAcc.balance || 0).toLocaleString()} (พร้อมตัดจ่าย)`
-                              : `ในกระเป๋า [KBANK-SPAY] มีอยู่ ฿${(spayAcc.balance || 0).toLocaleString()} ➔ ต้องกันเพิ่มอีก ฿${gap.toLocaleString()} ให้ครบยอดตัดบิล 10 ก.ย.`}
+                          <div style={{ fontSize: '0.75rem', color: isSpaySettled ? 'var(--accent-emerald)' : isSpayFunded ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
+                            {isSpaySettled
+                              ? `🎉 บิลรอบนี้ชำระเต็มจำนวนแล้ว (ยอดค้าง: ฿0.00) ➔ ไม่ต้องกันเงินซ้ำ เงินเดือนส่วนนี้ไหลไปเป็นเงินใช้ชีวิต/เงินออมทั้งหมด`
+                              : isSpayFunded 
+                                ? `ในกระเป๋า [KBANK-SPAY] มีเงินกันไว้ครบแล้ว ฿${(spayAcc.balance || 0).toLocaleString()} (พร้อมตัดจ่าย)`
+                                : `ในกระเป๋า [KBANK-SPAY] มีอยู่ ฿${(spayAcc.balance || 0).toLocaleString()} ➔ ต้องกันเพิ่มอีก ฿${gap.toLocaleString()} ให้ครบยอดตัดบิล 10 ส.ค.`}
                           </div>
                         </div>
                       </label>
@@ -718,13 +742,13 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                         <input
                           type="number"
                           step="0.01"
-                          disabled={!paySpayBill}
-                          value={spayTargetAmount}
+                          disabled={isSpaySettled || !paySpayBill}
+                          value={isSpaySettled ? 0 : spayTargetAmount}
                           onChange={(e) => {
                             setSpayTargetAmount(parseFloat(e.target.value) || 0);
                             autoCalculateSpendingSplit(inflowAmount, paySpayBill, e.target.value);
                           }}
-                          style={{ width: '110px', padding: '6px 8px', background: 'rgba(0, 0, 0, 0.6)', border: '1px solid var(--border-subtle)', borderRadius: '4px', color: 'var(--accent-rose)', fontWeight: 700, textAlign: 'right' }}
+                          style={{ width: '110px', padding: '6px 8px', background: 'rgba(0, 0, 0, 0.6)', border: '1px solid var(--border-subtle)', borderRadius: '4px', color: isSpaySettled ? 'var(--accent-emerald)' : 'var(--accent-rose)', fontWeight: 700, textAlign: 'right' }}
                         />
                       </div>
                     </div>
