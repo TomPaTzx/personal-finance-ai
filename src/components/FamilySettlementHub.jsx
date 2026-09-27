@@ -40,11 +40,15 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
 
   // Toggle item status
   const handleToggleItemStatus = (itemId) => {
+    let nextStatus = 'PENDING';
+    let targetItem = null;
+
     const updatedFamily = familyList.map(person => {
       if (person.id === selectedPersonId) {
         const updatedItems = person.items.map(item => {
           if (item.id === itemId) {
-            const nextStatus = item.status === 'PENDING' ? 'SETTLED' : 'PENDING';
+            nextStatus = item.status === 'PENDING' ? 'SETTLED' : 'PENDING';
+            targetItem = item;
             return { ...item, status: nextStatus };
           }
           return item;
@@ -54,9 +58,22 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
       return person;
     });
 
-    let nextData = { ...sotData, familySettlements: updatedFamily };
+    // Also sync to matching bnplItems if this item was from BNPL
+    const updatedBnpl = (sotData.bnplItems || []).map(b => {
+      const match = 
+        itemId === 'SYNC-' + b.id || 
+        targetItem?.linkedSourceId === b.id ||
+        (targetItem && (b.title === targetItem.title || targetItem.title.includes(b.title)));
+      if (match) {
+        return { ...b, isPaidBack: nextStatus === 'SETTLED' };
+      }
+      return b;
+    });
+
+    let nextData = { ...sotData, familySettlements: updatedFamily, bnplItems: updatedBnpl };
     nextData = addAuditEvent(nextData, 'FAMILY_SETTLEMENT', itemId, 'ITEM_STATUS_TOGGLED', {
-      person: selectedPerson?.personName
+      person: selectedPerson?.personName,
+      status: nextStatus
     });
 
     updateSOTData(nextData);
@@ -211,10 +228,21 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
       return person;
     });
 
+    // Also mark matching bnplItems as paid back when full settlement is executed
+    let updatedBnpl = [...(sotData.bnplItems || [])];
+    if (selectedPersonId === 'PERSON-JAENG') {
+      updatedBnpl = updatedBnpl.map(b => (b.owner === 'แจง' || b.owner === 'น้องพีเจ') ? { ...b, isPaidBack: true } : b);
+    } else if (selectedPersonId === 'PERSON-PHRAE') {
+      updatedBnpl = updatedBnpl.map(b => (b.owner === 'พี่แพร' || b.owner?.includes('แพร')) ? { ...b, isPaidBack: true } : b);
+    } else if (selectedPersonId === 'PERSON-MOM') {
+      updatedBnpl = updatedBnpl.map(b => b.owner === 'แม่' ? { ...b, isPaidBack: true } : b);
+    }
+
     let nextData = {
       ...sotData,
       accounts: updatedAccounts,
-      familySettlements: updatedFamily
+      familySettlements: updatedFamily,
+      bnplItems: updatedBnpl
     };
 
     nextData = addAuditEvent(nextData, 'FAMILY_SETTLEMENT', selectedPersonId, 'FULL_NET_SETTLEMENT_EXECUTED', {

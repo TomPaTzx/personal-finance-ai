@@ -411,9 +411,9 @@ export const INITIAL_DATA = {
       items: [
         { id: 'P-1', title: 'ค่าเครื่องกรองน้ำ Coway (หารคนละครึ่ง)', amount: 396, type: 'WE_OWE', status: 'SETTLED', note: 'บัตรพี่แพรตัด ฿792' },
         { id: 'P-2', title: 'ค่ามื้อกินข้าวนอกบ้าน & ค่าใช้จ่ายที่พี่แพรสำรองจ่าย', amount: 3500, type: 'WE_OWE', status: 'SETTLED', note: 'พี่แพรจ่ายให้ก่อน' },
-        { id: 'P-3', title: 'ค่างวดผ่อนแท็บเล็ต UOB (งวด 34/36)', amount: 663.89, type: 'THEY_OWE', status: 'SETTLED', note: 'หักลบในยอดสุทธิ' },
+        { id: 'P-3', title: 'ค่างวดผ่อนแท็บเล็ต UOB (งวด 34/36)', amount: 663.89, type: 'THEY_OWE', status: 'SETTLED', note: 'หักลบในยอดสุทธิ', linkedSourceId: 'DEBT-UOB-TAB' },
         { id: 'P-4', title: 'ค่า Netflix 4K หารคนละครึ่ง', amount: 259, type: 'THEY_OWE', status: 'SETTLED', note: 'หักลบในยอดสุทธิ' },
-        { id: 'P-6', title: 'ค่างวดหูฟัง Sony WH-1000XM5 (งวด 4/5)', amount: 2370.52, type: 'THEY_OWE', status: 'SETTLED', note: 'หักลบในยอดสุทธิ' },
+        { id: 'P-6', title: 'ค่างวดหูฟัง Sony WH-1000XM5 (งวด 4/5)', amount: 2370.52, type: 'THEY_OWE', status: 'SETTLED', note: 'หักลบในยอดสุทธิ', linkedSourceId: 'SPAY-01' },
         { id: 'P-7', title: 'ของที่พี่แพรฝากผ่อน SPayLater', amount: 152.59, type: 'THEY_OWE', status: 'SETTLED', note: 'หักลบในยอดสุทธิ' }
       ]
     },
@@ -424,9 +424,9 @@ export const INITIAL_DATA = {
       note: 'แจงโอนคืนเราสุทธิ ฿2,392.00 (แจงช่วยค่าไฟ ฿2,000 + ของใช้น้องพีเจ)',
       items: [
         { id: 'J-ELEC', title: '⚡ แจงช่วยออกค่าไฟบ้าน (ประจำเดือน)', amount: 2000, type: 'THEY_OWE', status: 'PENDING', note: 'แจงช่วยสมทบค่าไฟบ้านเดือนละ ฿2,000 หักลบในบ้าน' },
-        { id: 'J-1', title: 'กระเป๋าเก็บความเย็น/น้ำนม B-KOOL Our Back 20 ชม.', amount: 2732, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater' },
-        { id: 'J-2', title: 'ผ้าอ้อม Merries Japan Tape Size M (น้องพีเจ)', amount: 449, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater' },
-        { id: 'J-3', title: 'D-nee น้ำยาซักผ้าเด็ก Organic New Born 2800 มล.', amount: 399, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater' },
+        { id: 'J-1', title: 'กระเป๋าเก็บความเย็น/น้ำนม B-KOOL Our Back 20 ชม.', amount: 2732, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater', linkedSourceId: 'BNPL-14' },
+        { id: 'J-2', title: 'ผ้าอ้อม Merries Japan Tape Size M (น้องพีเจ)', amount: 449, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater', linkedSourceId: 'BNPL-09' },
+        { id: 'J-3', title: 'D-nee น้ำยาซักผ้าเด็ก Organic New Born 2800 มล.', amount: 399, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater', linkedSourceId: 'BNPL-06' },
         { id: 'J-4', title: 'ค่าของใช้ในห้อง/ซูเปอร์มาร์เก็ต (แจงจ่าย)', amount: 450, type: 'WE_OWE', status: 'PENDING', note: 'หารครึ่ง' }
       ]
     }

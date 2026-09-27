@@ -60,16 +60,40 @@ export default function DebtTracker({ sotData, updateSOTData }) {
 
   // Toggle BNPL Paid Back Status
   const handleToggleBnplPaidBack = (itemId) => {
+    let nextIsPaid = false;
+    let targetOwner = null;
+    let targetTitle = null;
+
     const updatedBnpl = bnplItems.map(item => {
       if (item.id === itemId) {
-        return { ...item, isPaidBack: !item.isPaidBack };
+        nextIsPaid = !item.isPaidBack;
+        targetOwner = item.owner;
+        targetTitle = item.title;
+        return { ...item, isPaidBack: nextIsPaid };
       }
       return item;
     });
 
-    let nextData = { ...sotData, bnplItems: updatedBnpl };
+    // Sync with Family Settlements
+    let updatedFamily = (sotData.familySettlements || []).map(person => {
+      const updatedItems = person.items.map(i => {
+        if (
+          i.id === `SYNC-${itemId}` || 
+          i.linkedSourceId === itemId || 
+          i.id === itemId ||
+          (targetTitle && (i.title === targetTitle || i.title.includes(targetTitle)))
+        ) {
+          return { ...i, status: nextIsPaid ? 'SETTLED' : 'PENDING' };
+        }
+        return i;
+      });
+      return { ...person, items: updatedItems };
+    });
+
+    let nextData = { ...sotData, bnplItems: updatedBnpl, familySettlements: updatedFamily };
     nextData = addAuditEvent(nextData, 'BNPL', itemId, 'PAID_BACK_STATUS_TOGGLED');
     updateSOTData(nextData);
+    toast(nextIsPaid ? '✅ ติ๊กรับเงินคืนเรียบร้อย (ปรับสถานะในบิลครอบครัวแล้ว)' : '⏳ ปรับเป็นรอเก็บเงินคืน', { type: 'info' });
   };
 
   // Open Add/Edit BNPL Modal
@@ -77,10 +101,10 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     setEditingBnpl(null);
     setBnplTitle('');
     setBnplAmount('');
-    setBnplOwner('เพื่อนร่วมงาน (ที่ทำงาน)');
+    setBnplOwner('แจง'); // Smart default to Jaeng as she's the most frequent requester
     setBnplCategory('SHOPEE_VIP');
     setBnplIsPaidBack(false);
-    setBnplNote('ฝากกด VIP Shopee');
+    setBnplNote('แจงฝากซื้อผ่าน SPayLater');
     setShowAddBnplModal(true);
   };
 
@@ -95,12 +119,13 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     setShowAddBnplModal(true);
   };
 
-  // Save BNPL Item
+  // Save BNPL Item (with Full Two-Way Family Settlement Sync)
   const handleSaveBnpl = (e) => {
     e.preventDefault();
     const amount = parseFloat(bnplAmount);
     if (!bnplTitle.trim() || isNaN(amount) || amount <= 0) return;
 
+    const bnplId = editingBnpl ? editingBnpl.id : `BNPL-${Date.now().toString().slice(-4)}`;
     let updatedBnpl = [...bnplItems];
     if (editingBnpl) {
       updatedBnpl = updatedBnpl.map(item => {
@@ -119,7 +144,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
       });
     } else {
       const newItem = {
-        id: `BNPL-${Date.now().toString().slice(-4)}`,
+        id: bnplId,
         title: bnplTitle,
         amount,
         owner: bnplOwner,
@@ -130,33 +155,99 @@ export default function DebtTracker({ sotData, updateSOTData }) {
       updatedBnpl = [newItem, ...updatedBnpl];
     }
 
-    let nextData = { ...sotData, bnplItems: updatedBnpl };
-    nextData = addAuditEvent(nextData, 'BNPL', editingBnpl ? editingBnpl.id : 'NEW_BNPL', editingBnpl ? 'BNPL_UPDATED' : 'BNPL_CREATED', {
+    // Determine target family person for syncing
+    let targetPersonId = null;
+    if (bnplOwner === 'แจง' || bnplOwner === 'น้องพีเจ') {
+      targetPersonId = 'PERSON-JAENG';
+    } else if (bnplOwner === 'พี่แพร' || bnplOwner.includes('แพร')) {
+      targetPersonId = 'PERSON-PHRAE';
+    } else if (bnplOwner === 'แม่') {
+      targetPersonId = 'PERSON-MOM';
+    }
+
+    let updatedFamily = (sotData.familySettlements || []).map(person => {
+      // If editing and previous owner was a different person, remove sync item from them
+      if (editingBnpl && person.id !== targetPersonId) {
+        return {
+          ...person,
+          items: person.items.filter(i => 
+            i.id !== `SYNC-${bnplId}` && 
+            i.linkedSourceId !== bnplId &&
+            i.title !== editingBnpl.title
+          )
+        };
+      }
+
+      if (person.id === targetPersonId) {
+        const syncId = `SYNC-${bnplId}`;
+        const existingIdx = person.items.findIndex(i => 
+          i.id === syncId || 
+          i.linkedSourceId === bnplId ||
+          (editingBnpl && (i.title === editingBnpl.title || i.title.includes(editingBnpl.title) || i.linkedSourceId === editingBnpl.id))
+        );
+
+        const syncItem = {
+          id: existingIdx >= 0 ? person.items[existingIdx].id : syncId,
+          title: bnplTitle,
+          amount,
+          type: 'THEY_OWE',
+          status: bnplIsPaidBack ? 'SETTLED' : 'PENDING',
+          note: bnplNote ? `${bnplNote} (Shopee SPayLater)` : 'ฝากซื้อผ่าน Shopee SPayLater',
+          linkedSourceId: bnplId
+        };
+
+        let newItems = [...person.items];
+        if (existingIdx >= 0) {
+          newItems[existingIdx] = syncItem;
+        } else {
+          newItems = [syncItem, ...newItems];
+        }
+        return { ...person, items: newItems };
+      }
+      return person;
+    });
+
+    let nextData = { ...sotData, bnplItems: updatedBnpl, familySettlements: updatedFamily };
+    nextData = addAuditEvent(nextData, 'BNPL', bnplId, editingBnpl ? 'BNPL_UPDATED' : 'BNPL_CREATED', {
       title: bnplTitle,
       amount,
-      owner: bnplOwner
+      owner: bnplOwner,
+      syncedToFamily: !!targetPersonId
     });
 
     updateSOTData(nextData);
     setShowAddBnplModal(false);
     setEditingBnpl(null);
+    toast(`💾 บันทึกรายการ [${bnplTitle}] สำเร็จ${targetPersonId ? ' (ซิงค์เข้าแท็บเคลียร์บิลครอบครัวแล้ว ✨)' : ''}`, { type: 'success' });
   };
 
   const handleDeleteBnpl = async (itemId) => {
     const isConfirmed = await modalConfirm({
       title: 'ยืนยันการลบรายการ',
-      message: 'ต้องการลบรายการช้อปปิ้งนี้ออกจากระบบใช่หรือไม่?',
+      message: 'ต้องการลบรายการช้อปปิ้งนี้ออกจากระบบใช่หรือไม่? (หากเชื่อมโยงในบิลครอบครัวจะถูกลบออกด้วย)',
       variant: 'danger',
       confirmText: 'ลบรายการ',
       cancelText: 'ยกเลิก'
     });
     if (!isConfirmed) return;
 
+    const targetItem = bnplItems.find(i => i.id === itemId);
     const updatedBnpl = bnplItems.filter(i => i.id !== itemId);
-    let nextData = { ...sotData, bnplItems: updatedBnpl };
+    
+    // Also remove from familySettlements
+    const updatedFamily = (sotData.familySettlements || []).map(person => ({
+      ...person,
+      items: person.items.filter(i => 
+        i.id !== `SYNC-${itemId}` && 
+        i.linkedSourceId !== itemId &&
+        (targetItem ? i.title !== targetItem.title : true)
+      )
+    }));
+
+    let nextData = { ...sotData, bnplItems: updatedBnpl, familySettlements: updatedFamily };
     nextData = addAuditEvent(nextData, 'BNPL', itemId, 'BNPL_DELETED');
     updateSOTData(nextData);
-    toast('🗑️ ลบรายการเรียบร้อยแล้ว', { type: 'info' });
+    toast('🗑️ ลบรายการเรียบร้อยแล้ว (อัปเดตบิลครอบครัวแล้ว)', { type: 'info' });
   };
 
   // Settle Full SPayLater Statement
@@ -303,22 +394,35 @@ export default function DebtTracker({ sotData, updateSOTData }) {
   const handleDeleteDebt = async (debtId) => {
     const isConfirmed = await modalConfirm({
       title: 'ยืนยันการลบรายการผ่อน',
-      message: 'ต้องการลบรายการผ่อนสินค้านี้ออกจากระบบใช่หรือไม่?',
+      message: 'ต้องการลบรายการผ่อนสินค้านี้ออกจากระบบใช่หรือไม่? (หากเชื่อมโยงในบิลครอบครัวจะถูกลบออกด้วย)',
       variant: 'danger',
       confirmText: 'ลบรายการผ่อน',
       cancelText: 'ยกเลิก'
     });
     if (!isConfirmed) return;
 
+    const targetDebt = debts.find(d => d.id === debtId);
     const updatedDebts = debts.filter(d => d.id !== debtId);
-    let nextData = { ...sotData, debts: updatedDebts };
+    
+    // Also remove from familySettlements
+    const updatedFamily = (sotData.familySettlements || []).map(p => ({
+      ...p,
+      items: p.items.filter(i => 
+        i.id !== `SYNC-${debtId}` && 
+        i.id !== `ITEM-SYNC-${debtId.replace('DEBT-', '')}` &&
+        i.linkedSourceId !== debtId &&
+        (targetDebt ? !i.title.includes(targetDebt.itemName) : true)
+      )
+    }));
+
+    let nextData = { ...sotData, debts: updatedDebts, familySettlements: updatedFamily };
     nextData = addAuditEvent(nextData, 'DEBT', debtId, 'DEBT_DELETED');
     updateSOTData(nextData);
     if (editingDebt?.id === debtId) {
       setEditingDebt(null);
       setShowAddDebtModal(false);
     }
-    toast('🗑️ ลบรายการผ่อนเรียบร้อยแล้ว', { type: 'info' });
+    toast('🗑️ ลบรายการผ่อนเรียบร้อยแล้ว (อัปเดตบิลครอบครัวแล้ว)', { type: 'info' });
   };
 
   const handleSaveDebt = (e) => {
@@ -332,6 +436,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
 
     let updatedDebts = [...debts];
     let updatedFamily = [...(sotData.familySettlements || [])];
+    const debtId = editingDebt ? editingDebt.id : `DEBT-${Date.now().toString().slice(-4)}`;
 
     if (editingDebt) {
       updatedDebts = updatedDebts.map(d => {
@@ -353,70 +458,9 @@ export default function DebtTracker({ sotData, updateSOTData }) {
         }
         return d;
       });
-
-      // Sync with Family Settlement Hub
-      if (syncWithFamily) {
-        let personId = null;
-        let settlementType = 'WE_OWE';
-
-        if (payerType === 'WE_PAY') {
-          if (linkedAccountId === 'CARD-JAENG') {
-            personId = 'PERSON-JAENG';
-            settlementType = 'WE_OWE';
-          } else if (linkedAccountId === 'CARD-MOM') {
-            personId = 'PERSON-MOM';
-            settlementType = 'WE_OWE';
-          } else if (linkedAccountId === 'CARD-PHRAE') {
-            personId = 'PERSON-PHRAE';
-            settlementType = 'WE_OWE';
-          }
-        } else if (payerType === 'THEY_PAY') {
-          if (owner === 'แจง') {
-            personId = 'PERSON-JAENG';
-            settlementType = 'THEY_OWE';
-          } else if (owner === 'แม่') {
-            personId = 'PERSON-MOM';
-            settlementType = 'THEY_OWE';
-          } else if (owner === 'พี่แพร' || owner.includes('แพร')) {
-            personId = 'PERSON-PHRAE';
-            settlementType = 'THEY_OWE';
-          }
-        }
-
-        if (personId) {
-          updatedFamily = updatedFamily.map(p => {
-            if (p.id === personId) {
-              const existingIdx = p.items.findIndex(i => i.title.includes(itemName) || i.id.includes(editingDebt.id));
-              const syncTitle = settlementType === 'WE_OWE' 
-                ? `ค่างวดผ่อน ${itemName} (เราผ่อนคืนให้${p.personName})` 
-                : `ค่างวดผ่อน ${itemName} (${p.personName}ผ่อนคืนเรา)`;
-
-              const newItem = {
-                id: `ITEM-SYNC-${editingDebt.id.replace('DEBT-', '')}`,
-                title: syncTitle,
-                amount: parseFloat(mth.toFixed(2)),
-                type: settlementType,
-                status: 'PENDING',
-                note: `งวดละ ฿${mth.toFixed(2)} (${remInst}/${inst} งวด)`
-              };
-
-              let newItems = [...p.items];
-              if (existingIdx >= 0) {
-                newItems[existingIdx] = newItem;
-              } else {
-                newItems = [newItem, ...newItems];
-              }
-              return { ...p, items: newItems };
-            }
-            return p;
-          });
-        }
-      }
-
     } else {
-      const newDebtId = `DEBT-${Date.now().toString().slice(-4)}`;
       const newDebt = {
-        id: newDebtId,
+        id: debtId,
         itemName,
         owner,
         category,
@@ -432,71 +476,102 @@ export default function DebtTracker({ sotData, updateSOTData }) {
         createdAt: new Date().toISOString().split('T')[0]
       };
       updatedDebts.push(newDebt);
+    }
 
-      // Sync new debt to Family Settlement Hub
-      if (syncWithFamily) {
-        let personId = null;
-        let settlementType = 'WE_OWE';
+    // Sync with Family Settlement Hub
+    let syncedPersonName = null;
+    if (syncWithFamily) {
+      let personId = null;
+      let settlementType = 'THEY_OWE';
 
-        if (payerType === 'WE_PAY') {
-          if (linkedAccountId === 'CARD-JAENG') {
-            personId = 'PERSON-JAENG';
-            settlementType = 'WE_OWE';
-          } else if (linkedAccountId === 'CARD-MOM') {
-            personId = 'PERSON-MOM';
-            settlementType = 'WE_OWE';
-          } else if (linkedAccountId === 'CARD-PHRAE') {
-            personId = 'PERSON-PHRAE';
-            settlementType = 'WE_OWE';
+      if (linkedAccountId === 'CARD-JAENG') {
+        personId = 'PERSON-JAENG';
+        settlementType = 'WE_OWE';
+      } else if (linkedAccountId === 'CARD-MOM') {
+        personId = 'PERSON-MOM';
+        settlementType = 'WE_OWE';
+      } else if (linkedAccountId === 'CARD-PHRAE') {
+        personId = 'PERSON-PHRAE';
+        settlementType = 'WE_OWE';
+      } else if (owner === 'แจง' || owner === 'น้องพีเจ') {
+        personId = 'PERSON-JAENG';
+        settlementType = 'THEY_OWE';
+      } else if (owner === 'แม่') {
+        personId = 'PERSON-MOM';
+        settlementType = 'THEY_OWE';
+      } else if (owner === 'พี่แพร' || owner.includes('แพร')) {
+        personId = 'PERSON-PHRAE';
+        settlementType = 'THEY_OWE';
+      }
+
+      if (personId) {
+        const syncId = `SYNC-${debtId}`;
+        const oldSyncId = `ITEM-SYNC-${debtId.replace('DEBT-', '')}`;
+
+        updatedFamily = updatedFamily.map(p => {
+          // If editing and person changed, remove from previous person
+          if (editingDebt && p.id !== personId) {
+            return {
+              ...p,
+              items: p.items.filter(i => 
+                i.id !== syncId && 
+                i.id !== oldSyncId && 
+                i.linkedSourceId !== debtId &&
+                !i.title.includes(editingDebt.itemName)
+              )
+            };
           }
-        } else if (payerType === 'THEY_PAY') {
-          if (owner === 'แจง') {
-            personId = 'PERSON-JAENG';
-            settlementType = 'THEY_OWE';
-          } else if (owner === 'แม่') {
-            personId = 'PERSON-MOM';
-            settlementType = 'THEY_OWE';
-          } else if (owner === 'พี่แพร' || owner.includes('แพร')) {
-            personId = 'PERSON-PHRAE';
-            settlementType = 'THEY_OWE';
-          }
-        }
 
-        if (personId) {
-          updatedFamily = updatedFamily.map(p => {
-            if (p.id === personId) {
-              const syncTitle = settlementType === 'WE_OWE' 
-                ? `ค่างวดผ่อน ${itemName} (เราผ่อนคืนให้${p.personName})` 
-                : `ค่างวดผ่อน ${itemName} (${p.personName}ผ่อนคืนเรา)`;
+          if (p.id === personId) {
+            syncedPersonName = p.personName;
+            const syncTitle = settlementType === 'WE_OWE' 
+              ? `ค่างวดผ่อน ${itemName} (เราผ่อนคืนให้${p.personName})` 
+              : `ค่างวดผ่อน ${itemName} (${p.personName}ผ่อนคืนเรา)`;
 
-              const newItem = {
-                id: `ITEM-SYNC-${newDebtId.replace('DEBT-', '')}`,
-                title: syncTitle,
-                amount: parseFloat(mth.toFixed(2)),
-                type: settlementType,
-                status: 'PENDING',
-                note: `งวดละ ฿${mth.toFixed(2)} (${remInst}/${inst} งวด)`
-              };
-              return { ...p, items: [newItem, ...p.items] };
+            const existingIdx = p.items.findIndex(i => 
+              i.id === syncId || 
+              i.id === oldSyncId ||
+              i.linkedSourceId === debtId ||
+              (editingDebt && (i.title.includes(editingDebt.itemName) || i.title.includes(itemName)))
+            );
+
+            const syncItem = {
+              id: existingIdx >= 0 ? p.items[existingIdx].id : syncId,
+              title: syncTitle,
+              amount: parseFloat(mth.toFixed(2)),
+              type: settlementType,
+              status: remInst === 0 ? 'SETTLED' : (existingIdx >= 0 ? p.items[existingIdx].status : 'PENDING'),
+              note: `งวดละ ฿${mth.toFixed(2)} (${remInst}/${inst} งวด)`,
+              linkedSourceId: debtId
+            };
+
+            let newItems = [...p.items];
+            if (existingIdx >= 0) {
+              newItems[existingIdx] = syncItem;
+            } else {
+              newItems = [syncItem, ...newItems];
             }
-            return p;
-          });
-        }
+            return { ...p, items: newItems };
+          }
+          return p;
+        });
       }
     }
 
     let nextData = { ...sotData, debts: updatedDebts, familySettlements: updatedFamily };
-    nextData = addAuditEvent(nextData, 'DEBT', editingDebt ? editingDebt.id : 'NEW_DEBT', editingDebt ? 'DEBT_UPDATED' : 'DEBT_CREATED', {
+    nextData = addAuditEvent(nextData, 'DEBT', debtId, editingDebt ? 'DEBT_UPDATED' : 'DEBT_CREATED', {
       itemName,
       owner,
       payerType,
       linkedAccountId,
-      monthlyPayment: mth
+      monthlyPayment: mth,
+      syncedToFamily: !!syncedPersonName
     });
 
     updateSOTData(nextData);
     setEditingDebt(null);
     setShowAddDebtModal(false);
+    toast(`💾 บันทึกรายการผ่อน [${itemName}] สำเร็จ${syncedPersonName ? ` (ซิงค์เข้าบิลของ${syncedPersonName}แล้ว ✨)` : ''}`, { type: 'success' });
   };
 
   const handlePaySingleInstallment = (debtId) => {
@@ -519,7 +594,29 @@ export default function DebtTracker({ sotData, updateSOTData }) {
       return d;
     });
 
-    let nextData = { ...sotData, debts: updatedDebts };
+    // Sync remaining status to Family Settlement Hub
+    let updatedFamily = (sotData.familySettlements || []).map(p => ({
+      ...p,
+      items: p.items.map(i => {
+        if (
+          i.id === `SYNC-${debtId}` || 
+          i.id === `ITEM-SYNC-${debtId.replace('DEBT-', '')}` || 
+          i.linkedSourceId === debtId ||
+          i.title.includes(targetDebt.itemName)
+        ) {
+          if (newRemainingInstallments === 0) {
+            return { ...i, status: 'SETTLED', note: 'ผ่อนครบทุกงวดแล้ว (เสร็จสิ้น)' };
+          }
+          return {
+            ...i,
+            note: `งวดละ ฿${targetDebt.monthlyPayment.toFixed(2)} (${newRemainingInstallments}/${targetDebt.totalInstallments} งวด)`
+          };
+        }
+        return i;
+      })
+    }));
+
+    let nextData = { ...sotData, debts: updatedDebts, familySettlements: updatedFamily };
     nextData = addAuditEvent(nextData, 'DEBT', debtId, 'INSTALLMENT_PAID', {
       itemName: targetDebt.itemName,
       paidAmount: targetDebt.monthlyPayment,
@@ -527,6 +624,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
     });
 
     updateSOTData(nextData);
+    toast(`💳 ตัดจ่ายค่างวด ${targetDebt.itemName} เรียบร้อย (เหลือ ${newRemainingInstallments} งวด)`, { type: 'success' });
   };
 
   const getOwnerBadge = (ownerName) => {
@@ -1336,7 +1434,17 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                   </label>
                   <select
                     value={owner}
-                    onChange={(e) => setOwner(e.target.value)}
+                    onChange={(e) => {
+                      const newOwner = e.target.value;
+                      setOwner(newOwner);
+                      if (newOwner === 'แจง' || newOwner === 'พี่แพร' || newOwner === 'แม่' || newOwner === 'น้องพีเจ') {
+                        if (!linkedAccountId.startsWith('CARD-')) {
+                          setPayerType('THEY_PAY'); // If on our card/SPay, default to they pay us back
+                        }
+                      } else if (newOwner === 'ตัวเอง' || newOwner === 'บ้าน') {
+                        setPayerType('WE_PAY');
+                      }
+                    }}
                     style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
                   >
                     <option value="ตัวเอง">👤 ของตัวเอง</option>
@@ -1370,7 +1478,15 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 </label>
                 <select
                   value={linkedAccountId}
-                  onChange={(e) => setLinkedAccountId(e.target.value)}
+                  onChange={(e) => {
+                    const newCard = e.target.value;
+                    setLinkedAccountId(newCard);
+                    if (newCard.startsWith('CARD-')) {
+                      setPayerType('WE_PAY'); // Borrowed their card, we pay
+                    } else if (owner === 'แจง' || owner === 'พี่แพร' || owner === 'แม่' || owner === 'น้องพีเจ') {
+                      setPayerType('THEY_PAY'); // On our account, they pay us back
+                    }
+                  }}
                   style={{ width: '100%', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-glow)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
                 >
                   <option value="KBANK-SPAY">🛍️ Shopee SPayLater (บัญชีชื่อเรา)</option>

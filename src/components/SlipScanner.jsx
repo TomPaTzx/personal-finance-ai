@@ -260,10 +260,34 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
         status: 'ACTIVE'
       };
 
+      let updatedFamily = sotData.familySettlements || [];
+      if (owner === 'แจง' || owner === 'น้องพีเจ' || owner === 'พี่แพร' || owner === 'แม่') {
+        const targetPersonId = (owner === 'แจง' || owner === 'น้องพีเจ') 
+          ? 'PERSON-JAENG' 
+          : (owner === 'แม่' ? 'PERSON-MOM' : 'PERSON-PHRAE');
+        
+        updatedFamily = updatedFamily.map(p => {
+          if (p.id === targetPersonId) {
+            const newItem = {
+              id: 'SYNC-' + newBnpl.id,
+              title: newBnpl.itemName,
+              amount: totalVal,
+              type: 'THEY_OWE',
+              status: 'PENDING',
+              note: 'ฝากซื้อ/สลิป SPayLater (' + instNum + ' งวด งวดละ ฿' + monthNum.toFixed(2) + ')',
+              linkedSourceId: newBnpl.id
+            };
+            return { ...p, items: [newItem, ...p.items] };
+          }
+          return p;
+        });
+      }
+
       let nextData = {
         ...sotData,
         bnplItems: [newBnpl, ...(sotData.bnplItems || [])],
-        debts: [newDebt, ...(sotData.debts || [])]
+        debts: [newDebt, ...(sotData.debts || [])],
+        familySettlements: updatedFamily
       };
 
       nextData = addAuditEvent(nextData, 'SLIP_OCR', bankRef, 'BNPL_ITEM_ADDED', {
