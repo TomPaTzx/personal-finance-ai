@@ -63,6 +63,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
   const [allocSnack, setAllocSnack] = useState(0);
   const [allocEmerg, setAllocEmerg] = useState(0);
   const [allocMain, setAllocMain] = useState(0);
+  const [allocationStrategy, setAllocationStrategy] = useState('WATERFALL'); // 'WATERFALL' | 'SPAY_FIRST' | 'LIVING_FIRST'
 
   // OT Cash Intake states
   const [otType, setOtType] = useState('EVENING'); // EVENING, SATURDAY, SUMMER
@@ -105,65 +106,200 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     .filter(d => d.payerType === 'WE_PAY')
     .reduce((sum, d) => sum + (d.monthlyPayment || 0), 0);
 
+  // Live liabilities summary
+  const isSpayStatementPaid = sotData.spayStatementStatus === 'PAID';
+  const spayAcc = accounts.find(a => a.id === 'KBANK-SPAY') || { balance: 0 };
+  const currentBnplTotal = (sotData.bnplItems || [])
+    .filter(i => !isSpayStatementPaid && !i.isPaidInStatement)
+    .reduce((sum, item) => sum + item.amount, 0);
+  const fullSpayStatement = isSpayStatementPaid ? 0 : (currentBnplTotal + 5177.95);
+  const spayGap = Math.max(0, Math.round((fullSpayStatement - (spayAcc.balance || 0)) * 100) / 100);
+  const isSpayNeeded = !isSpayStatementPaid && spayGap > 0;
+  const isHomePending = pendingFamilyWeOwe > 0;
+  const liveHome = isHomePending ? pendingFamilyWeOwe : 0;
+  const liveSubs = totalKBankDirectSubs;
+  const isSubsNeeded = liveSubs > 0;
+  const totalMandatoryLiabilities = Math.round(((isSpayNeeded ? spayGap : 0) + (isHomePending ? liveHome : 0) + (isSubsNeeded ? liveSubs : 0)) * 100) / 100;
+
+  // Smart Waterfall Allocation Engine: Recommends realistic allocation from cash currently in hand
+  const calculateSmartWaterfall = (inflow, strategy = 'WATERFALL') => {
+    const totalCash = Math.max(0, parseFloat(inflow) || 0);
+
+    let res = {
+      paySubs: false,
+      subsAmount: 0,
+      payHome: false,
+      homeAmount: 0,
+      paySpay: false,
+      spayAmount: 0,
+      food: 0,
+      snack: 0,
+      emerg: 0,
+      main: 0,
+      spayShortfall: 0,
+      homeShortfall: 0,
+      strategyUsed: strategy,
+      summaryTitle: '',
+      summaryNote: '',
+      shortfallNote: ''
+    };
+
+    if (totalCash <= 0) return res;
+
+    if (strategy === 'WATERFALL') {
+      let rem = totalCash;
+
+      // Priority 1: Direct Subscriptions (Netflix ฿518, due month-end)
+      if (isSubsNeeded && rem > 0) {
+        const alloc = Math.min(rem, liveSubs);
+        res.paySubs = true;
+        res.subsAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+
+      // Priority 2: Family / Home Settlement (บิลบ้านแม่, due 30/31st)
+      if (isHomePending && rem > 0) {
+        const alloc = Math.min(rem, liveHome);
+        res.payHome = true;
+        res.homeAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+
+      // Priority 3: Living Baseline (กันค่ากินแซ่บ + ขนม รร. ประทังชีพก่อนโอทีออก)
+      if (rem > 0) {
+        const targetFood = Math.min(rem * 0.6, 1000);
+        const targetSnack = Math.min((rem - targetFood) * 0.5, 500);
+        const livingBaseline = targetFood + targetSnack;
+
+        // Priority 4: Shopee SPayLater Sinking Fund (Due 10th next month)
+        const cashForSpay = Math.max(0, rem - livingBaseline);
+        const spayAlloc = Math.min(cashForSpay, spayGap);
+        if (isSpayNeeded && spayAlloc > 0) {
+          res.paySpay = true;
+          res.spayAmount = Math.round(spayAlloc * 100) / 100;
+          rem = Math.round((rem - spayAlloc) * 100) / 100;
+        }
+
+        const actualFood = Math.min(rem, targetFood > 0 ? targetFood : Math.min(rem * 0.6, 3000));
+        res.food = Math.round(actualFood * 100) / 100;
+        rem = Math.round((rem - actualFood) * 100) / 100;
+
+        const actualSnack = Math.min(rem, targetSnack > 0 ? targetSnack : Math.min(rem * 0.6, 1500));
+        res.snack = Math.round(actualSnack * 100) / 100;
+        rem = Math.round((rem - actualSnack) * 100) / 100;
+
+        if (rem > 0 && isSpayNeeded && res.spayAmount < spayGap) {
+          const extraSpay = Math.min(rem, spayGap - res.spayAmount);
+          res.paySpay = true;
+          res.spayAmount = Math.round((res.spayAmount + extraSpay) * 100) / 100;
+          rem = Math.round((rem - extraSpay) * 100) / 100;
+        }
+
+        if (rem > 0) {
+          res.main = Math.round(rem * 100) / 100;
+        }
+      }
+
+      res.spayShortfall = Math.max(0, Math.round((spayGap - res.spayAmount) * 100) / 100);
+      res.summaryTitle = '🛡️ กลยุทธ์ Waterfall ตามวันครบกำหนด (แนะนำที่สุด)';
+      res.summaryNote = `ล็อกจ่ายบิลสิ้นเดือนครบ 100% (บ้านแม่ ฿${res.homeAmount.toLocaleString()} + Netflix ฿${res.subsAmount.toLocaleString()}) สำรองค่ากินอยู่ ฿${(res.food + res.snack).toLocaleString()} และกันเข้า SPayLater ฿${res.spayAmount.toLocaleString()}`;
+      if (res.spayShortfall > 0) {
+        res.shortfallNote = `SPayLater (ครบกำหนด 10 ส.ค.) ยังขาดอีก ฿${res.spayShortfall.toLocaleString()} ➔ รอเติมจากเงินโอทีเย็นสิ้นเดือน (~฿3,600) + ค่าสอนพิเศษเสาร์`;
+      } else {
+        res.shortfallNote = '🎉 บิล SPayLater ครอบคลุมครบ 100% แล้ว!';
+      }
+    } else if (strategy === 'SPAY_FIRST') {
+      let rem = totalCash;
+      if (isSubsNeeded && rem > 0) {
+        const alloc = Math.min(rem, liveSubs);
+        res.paySubs = true;
+        res.subsAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+      if (isSpayNeeded && rem > 0) {
+        const alloc = Math.min(rem, spayGap);
+        res.paySpay = true;
+        res.spayAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+      if (isHomePending && rem > 0) {
+        const alloc = Math.min(rem, liveHome);
+        res.payHome = true;
+        res.homeAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+      if (rem > 0) {
+        res.main = Math.round(rem * 100) / 100;
+      }
+      res.spayShortfall = Math.max(0, Math.round((spayGap - res.spayAmount) * 100) / 100);
+      res.homeShortfall = Math.max(0, Math.round((liveHome - res.homeAmount) * 100) / 100);
+      res.summaryTitle = '⚡ กลยุทธ์เทเงินเข้า SPayLater ก่อน (SPay-First)';
+      res.summaryNote = `กันเงินเข้า SPayLater เต็มจำนวน ฿${res.spayAmount.toLocaleString()} ทันที`;
+      if (res.homeShortfall > 0) {
+        res.shortfallNote = `⚠️ บิลบ้านแม่จะขาดอยู่ ฿${res.homeShortfall.toLocaleString()} ต้องรอเงินโอทีเย็นสิ้นเดือนมาจ่ายแม่แทน`;
+      }
+    } else if (strategy === 'LIVING_FIRST') {
+      let rem = totalCash;
+      if (isSubsNeeded && rem > 0) {
+        const alloc = Math.min(rem, liveSubs);
+        res.paySubs = true;
+        res.subsAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+      if (isHomePending && rem > 0) {
+        const alloc = Math.min(rem, liveHome);
+        res.payHome = true;
+        res.homeAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+      if (rem > 0) {
+        const food = Math.min(rem * 0.6, 3000);
+        res.food = Math.round(food * 100) / 100;
+        rem = Math.round((rem - food) * 100) / 100;
+
+        const snack = Math.min(rem * 0.6, 1500);
+        res.snack = Math.round(snack * 100) / 100;
+        rem = Math.round((rem - snack) * 100) / 100;
+      }
+      if (isSpayNeeded && rem > 0) {
+        const alloc = Math.min(rem, spayGap);
+        res.paySpay = true;
+        res.spayAmount = Math.round(alloc * 100) / 100;
+        rem = Math.round((rem - alloc) * 100) / 100;
+      }
+      if (rem > 0) {
+        res.main = Math.round(rem * 100) / 100;
+      }
+      res.spayShortfall = Math.max(0, Math.round((spayGap - res.spayAmount) * 100) / 100);
+      res.summaryTitle = '🍜 กลยุทธ์เน้นกินอยู่สบายใจ (Living-First)';
+      res.summaryNote = `ล็อกบิลบ้านแม่และกันงบกินแซ่บ + ขนม รร. เต็มที่ ฿${(res.food + res.snack).toLocaleString()}`;
+      res.shortfallNote = `SPayLater ทยอยกันไว้ ฿${res.spayAmount.toLocaleString()} (ขาดอีก ฿${res.spayShortfall.toLocaleString()} รอเติมจากโอที)`;
+    }
+
+    return res;
+  };
+
+  const applySmartAllocation = (inflow, strategy = allocationStrategy) => {
+    const plan = calculateSmartWaterfall(inflow, strategy);
+    setPaySubsBill(plan.paySubs);
+    setSubsTargetAmount(plan.subsAmount);
+    setPayHomeBill(plan.payHome);
+    setHomeTargetAmount(plan.homeAmount);
+    setPaySpayBill(plan.paySpay);
+    setSpayTargetAmount(plan.spayAmount);
+    setAllocFood(plan.food);
+    setAllocSnack(plan.snack);
+    setAllocEmerg(plan.emerg);
+    setAllocMain(plan.main);
+    setAllocationStrategy(strategy);
+  };
+
   // Unified target initializer for Live Allocation Assistant
   const resetAllocationTargets = (srcId, curBal) => {
     const initialInflow = parseFloat(curBal) || 0;
     setAllocationSourceId(srcId);
     setInflowAmount(initialInflow.toString());
-
-    // 1. Home / Family Bill: Check if already settled in database
-    const isHomePending = pendingFamilyWeOwe > 0;
-    const liveHome = isHomePending ? pendingFamilyWeOwe : 0;
-    setPayHomeBill(isHomePending);
-    setHomeTargetAmount(liveHome);
-
-    // 2. SPayLater: Statement Bill
-    const isSpayStatementPaid = sotData.spayStatementStatus === 'PAID';
-    const spayAcc = accounts.find(a => a.id === 'KBANK-SPAY') || { balance: 0 };
-    
-    // Dynamic statement total from DebtTracker / SOT (0 if already paid)
-    const currentBnplTotal = (sotData.bnplItems || [])
-      .filter(i => !isSpayStatementPaid && !i.isPaidInStatement)
-      .reduce((sum, item) => sum + item.amount, 0);
-    const fullSpayStatement = isSpayStatementPaid ? 0 : (currentBnplTotal + 5177.95);
-
-    const spayGap = Math.max(0, Math.round((fullSpayStatement - (spayAcc.balance || 0)) * 100) / 100);
-    const isSpayNeeded = !isSpayStatementPaid && spayGap > 0;
-
-    // Default allocation towards SPay from this inflow
-    const subsCost = totalKBankDirectSubs;
-    let defaultSpayAlloc = 0;
-    if (isSpayNeeded) {
-      if (initialInflow >= (spayGap + subsCost)) {
-        defaultSpayAlloc = spayGap;
-      } else {
-        defaultSpayAlloc = Math.max(0, Math.round((initialInflow - subsCost) * 100) / 100);
-        if (defaultSpayAlloc === 0 && initialInflow > 0) {
-          defaultSpayAlloc = initialInflow;
-        }
-      }
-    }
-
-    setPaySpayBill(isSpayNeeded);
-    setSpayTargetAmount(defaultSpayAlloc);
-
-    // 3. Subscriptions that deduct directly from KBank (Netflix เต็มจำนวน ฿518)
-    const liveSubs = totalKBankDirectSubs;
-    const isSubsNeeded = initialInflow >= liveSubs;
-    setPaySubsBill(isSubsNeeded);
-    setSubsTargetAmount(liveSubs);
-
-    autoCalculateSpendingSplit(
-      initialInflow,
-      isSpayNeeded,
-      defaultSpayAlloc,
-      isHomePending,
-      liveHome,
-      isSubsNeeded,
-      liveSubs,
-      false,
-      0
-    );
+    applySmartAllocation(initialInflow, 'WATERFALL');
   };
 
   // Auto-tune targets based on current live liabilities when opening modal
@@ -254,24 +390,31 @@ export default function AccountsManager({ sotData, updateSOTData }) {
     }
 
     if (sourceBalance < totalAllocated) {
-      const isConfirmed = await modalConfirm({
-        title: '⚠️ ยอดเงินต้นทางน้อยกว่ายอดจัดสรร',
-        message: `ยอดเงินในบัญชีต้นทาง (${sourceAccount?.name}) มี ฿${sourceBalance.toLocaleString()} แต่มียอดจัดสรรรวม ฿${totalAllocated.toLocaleString()}\n\nต้องการยืนยันการจัดสรรและกระจายเข้ากระเป๋าจริงหรือไม่?`,
-        variant: 'warning',
-        confirmText: 'ยืนยันจัดสรร',
-        cancelText: 'ยกเลิก'
+      await modalAlert({
+        title: '🚫 ยอดจัดสรรเกินเงินที่มีจริงในกระเป๋า',
+        message: `ยอดเงินในบัญชีต้นทาง (${sourceAccount?.name}) มี ฿${sourceBalance.toLocaleString()} แต่มียอดจัดสรรรวม ฿${totalAllocated.toLocaleString()} (เกินอยู่ ฿${(totalAllocated - sourceBalance).toLocaleString()})\n\nระบบไม่อนุญาตให้จัดสรรเกิน เพื่อป้องกันกระเป๋าเงินติดลบและสร้างเงินทิพย์\n\n💡 กรุณากดปุ่ม "ปรับยอดตามคำแนะนำ (Smart Auto-Fit)" หรือปรับลดตัวเลขลงก่อนยืนยัน`,
+        variant: 'warning'
       });
-      if (!isConfirmed) return;
-    } else {
-      const isConfirmed = await modalConfirm({
-        title: '✨ ยืนยันการจัดสรรและกระจายเงิน',
-        message: `ยืนยันการจัดสรรเงิน ฿${totalAllocated.toLocaleString()} จาก [${sourceAccount?.name}] กระจายเข้ากระเป๋าตามสูตรนี้ทันที?`,
-        variant: 'success',
-        confirmText: 'ยืนยันกระจายเงินทันที',
-        cancelText: 'ตรวจสอบก่อน'
-      });
-      if (!isConfirmed) return;
+      return;
     }
+
+    if (parsedInflow < totalAllocated) {
+      await modalAlert({
+        title: '🚫 ยอดจัดสรรเกินเงินที่ระบุไว้',
+        message: `คุณระบุเงินที่จะนำมาจัดสรร ฿${parsedInflow.toLocaleString()} แต่มียอดจัดสรรรวม ฿${totalAllocated.toLocaleString()} (เกินอยู่ ฿${(totalAllocated - parsedInflow).toLocaleString()})\n\nกรุณาคลิก "ปรับให้พอดีเงินที่มี (Smart Auto-Fit)" เพื่อให้ยอดลงตัวพอดี`,
+        variant: 'warning'
+      });
+      return;
+    }
+
+    const isConfirmed = await modalConfirm({
+      title: '✨ ยืนยันการจัดสรรและกระจายเงิน',
+      message: `ยืนยันการจัดสรรเงิน ฿${totalAllocated.toLocaleString()} จาก [${sourceAccount?.name}] กระจายเข้ากระเป๋าตามสูตรนี้ทันที?`,
+      variant: 'success',
+      confirmText: 'ยืนยันกระจายเงินทันที',
+      cancelText: 'ตรวจสอบก่อน'
+    });
+    if (!isConfirmed) return;
 
     const updatedAccounts = accounts.map(acc => {
       // 1. Deduct from source account
@@ -649,8 +792,9 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                     step="0.01"
                     value={inflowAmount}
                     onChange={(e) => {
-                      setInflowAmount(e.target.value);
-                      autoCalculateSpendingSplit(e.target.value);
+                      const val = e.target.value;
+                      setInflowAmount(val);
+                      applySmartAllocation(val, allocationStrategy);
                     }}
                     style={{
                       width: '100%',
@@ -667,6 +811,162 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                 </div>
               </div>
             </div>
+
+            {/* AI Financial Coach Smart Recommendation Card */}
+            {(() => {
+              const currentPlan = calculateSmartWaterfall(inflowAmount, allocationStrategy);
+              const isShortfall = parsedInflow < totalMandatoryLiabilities;
+              const currentSpayFundedPercent = spayGap > 0 ? Math.min(100, Math.round((currentPlan.spayAmount / spayGap) * 100)) : 100;
+
+              return (
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(15, 23, 42, 0.95) 100%)',
+                  border: '1px solid rgba(6, 182, 212, 0.35)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '16px',
+                  marginBottom: '18px',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Sparkles size={18} color="var(--accent-cyan)" />
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fff', margin: 0 }}>
+                        คำแนะนำอัจฉริยะ: จากเงิน ฿{parsedInflow.toLocaleString()} ที่มีตอนนี้ ควรจัดสรรอย่างไร?
+                      </h4>
+                    </div>
+                    <div>
+                      {isShortfall ? (
+                        <span className="badge badge-amber" style={{ fontSize: '0.72rem', padding: '3px 8px' }}>
+                          ⚡ เงินยังไม่ครบภาระทั้งเดือน (ขาด ฿{(totalMandatoryLiabilities - parsedInflow).toLocaleString()})
+                        </span>
+                      ) : (
+                        <span className="badge badge-emerald" style={{ fontSize: '0.72rem', padding: '3px 8px' }}>
+                          🎉 เงินพอจ่ายทุกบิลครบ 100%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '12px' }}>
+                    {isShortfall ? (
+                      <div>
+                        💡 <strong style={{ color: '#fff' }}>หลักการคิดของโค้ชการเงิน (Waterfall):</strong> ในเมื่อเงินก้อนนี้ยังไม่ครบยอดหนี้ทั้งหมด (฿{totalMandatoryLiabilities.toLocaleString()}) 
+                        เราต้อง <strong>"จ่ายตามลำดับความเร่งด่วนของวันครบกำหนดชำระ"</strong> เพื่อล็อกบิลสิ้นเดือนให้ครอบครัวก่อน ไม่ให้ถูกตัดบริการ และไม่ให้กระเป๋าเงินติดลบ!
+                      </div>
+                    ) : (
+                      <div>
+                        💡 เงินก้อนนี้เพียงพอสำหรับล็อกบิลบังคับทั้งหมด 100% และยังมีเงินเหลือสำหรับกินใช้สบายใจ ฿{(parsedInflow - totalMandatoryLiabilities).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Strategy Selector Tabs */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    <button
+                      type="button"
+                      onClick={() => applySmartAllocation(inflowAmount, 'WATERFALL')}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.78rem',
+                        fontWeight: allocationStrategy === 'WATERFALL' ? 700 : 500,
+                        borderRadius: 'var(--radius-sm)',
+                        border: allocationStrategy === 'WATERFALL' ? '1px solid var(--accent-cyan)' : '1px solid rgba(255,255,255,0.1)',
+                        background: allocationStrategy === 'WATERFALL' ? 'rgba(6, 182, 212, 0.2)' : 'rgba(0,0,0,0.3)',
+                        color: allocationStrategy === 'WATERFALL' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🛡️ สูตร 1: Waterfall ตามวันครบกำหนด (แนะนำ)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => applySmartAllocation(inflowAmount, 'SPAY_FIRST')}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.78rem',
+                        fontWeight: allocationStrategy === 'SPAY_FIRST' ? 700 : 500,
+                        borderRadius: 'var(--radius-sm)',
+                        border: allocationStrategy === 'SPAY_FIRST' ? '1px solid var(--accent-rose)' : '1px solid rgba(255,255,255,0.1)',
+                        background: allocationStrategy === 'SPAY_FIRST' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(0,0,0,0.3)',
+                        color: allocationStrategy === 'SPAY_FIRST' ? 'var(--accent-rose)' : 'var(--text-muted)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⚡ สูตร 2: เน้นปิด SPayLater ก่อน
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => applySmartAllocation(inflowAmount, 'LIVING_FIRST')}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.78rem',
+                        fontWeight: allocationStrategy === 'LIVING_FIRST' ? 700 : 500,
+                        borderRadius: 'var(--radius-sm)',
+                        border: allocationStrategy === 'LIVING_FIRST' ? '1px solid var(--accent-emerald)' : '1px solid rgba(255,255,255,0.1)',
+                        background: allocationStrategy === 'LIVING_FIRST' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(0,0,0,0.3)',
+                        color: allocationStrategy === 'LIVING_FIRST' ? 'var(--accent-emerald)' : 'var(--text-muted)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🍜 สูตร 3: เน้นกินอยู่สบายใจ
+                    </button>
+                  </div>
+
+                  {/* Recommendation Summary Box */}
+                  <div style={{ background: 'rgba(0, 0, 0, 0.4)', borderRadius: 'var(--radius-sm)', padding: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '10px' }}>
+                      <div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>1. บิลสิ้นเดือนนี้ (ด่วนที่สุด):</div>
+                        <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#fff' }}>
+                          บิลบ้านแม่ ฿{currentPlan.homeAmount.toLocaleString()} + Netflix ฿{currentPlan.subsAmount.toLocaleString()}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>2. งบกินอยู่ช่วงนี้:</div>
+                        <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent-emerald)' }}>
+                          กินแซ่บ ฿{currentPlan.food.toLocaleString()} + ขนม รร. ฿{currentPlan.snack.toLocaleString()}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>3. ทยอยกันเข้า SPayLater:</div>
+                        <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent-cyan)' }}>
+                          ฿{currentPlan.spayAmount.toLocaleString()} {spayGap > 0 ? `(${currentSpayFundedPercent}%)` : ''}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Progress bar for SPay if partial */}
+                    {currentPlan.spayShortfall > 0 && (
+                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>ความคืบหน้าสะสมค่า SPayLater (ครบกำหนด 10 ส.ค.):</span>
+                          <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>฿{currentPlan.spayAmount.toLocaleString()} / ฿{spayGap.toLocaleString()}</span>
+                        </div>
+                        <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: `${currentSpayFundedPercent}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald))' }} />
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--accent-amber)', marginTop: '6px', lineHeight: 1.4 }}>
+                          ⏳ <strong>ส่วนที่ยังขาดอีก ฿{currentPlan.spayShortfall.toLocaleString()}:</strong> ไม่ต้องกังวล! SPayLater ครบกำหนดวันที่ 10 ส.ค. ➔ รอเติมจาก <strong>เงินโอทีเย็นสิ้นเดือน (~฿3,600)</strong> + <strong>ค่าสอนพิเศษเสาร์</strong> ทันเวลาพอดีแน่นอน
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => applySmartAllocation(inflowAmount, allocationStrategy)}
+                        className="btn btn-outline"
+                        style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' }}
+                      >
+                        <Sparkles size={13} /> ปรับยอดตามคำแนะนำนี้ (Smart Auto-Fit)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* STAGE 1: Mandatory Upcoming Bills Lock-in */}
             <div style={{ background: 'rgba(244, 63, 94, 0.04)', border: '1px solid rgba(244, 63, 94, 0.25)', borderRadius: 'var(--radius-md)', padding: '16px', marginBottom: '18px' }}>
@@ -965,8 +1265,8 @@ export default function AccountsManager({ sotData, updateSOTData }) {
 
             {/* Allocation Balance Health Status Bar */}
             <div style={{ 
-              background: diffInflow === 0 ? 'rgba(16, 185, 129, 0.08)' : diffInflow < 0 ? 'rgba(244, 63, 94, 0.1)' : 'rgba(6, 182, 212, 0.08)',
-              border: `1px solid ${diffInflow === 0 ? 'rgba(16, 185, 129, 0.3)' : diffInflow < 0 ? 'rgba(244, 63, 94, 0.3)' : 'var(--border-glow)'}`,
+              background: diffInflow === 0 ? 'rgba(16, 185, 129, 0.08)' : diffInflow < 0 ? 'rgba(244, 63, 94, 0.12)' : 'rgba(6, 182, 212, 0.08)',
+              border: `1px solid ${diffInflow === 0 ? 'rgba(16, 185, 129, 0.3)' : diffInflow < 0 ? 'rgba(244, 63, 94, 0.5)' : 'var(--border-glow)'}`,
               borderRadius: 'var(--radius-sm)',
               padding: '14px',
               marginBottom: '18px'
@@ -982,7 +1282,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                 <div>
                   {diffInflow === 0 ? (
                     <span className="badge badge-emerald" style={{ fontSize: '0.85rem' }}>
-                      ✅ จัดสรรครบ 100% พอดีเป๊ะ
+                      ✅ จัดสรรครบ 100% พอดีเป๊ะ (กระเป๋าไม่ติดลบ)
                     </span>
                   ) : diffInflow > 0 ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -991,34 +1291,70 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                       </span>
                       <button
                         type="button"
-                        onClick={() => setAllocMain(Math.round(((parseFloat(allocMain) || 0) + diffInflow) * 100) / 100)}
+                        onClick={() => {
+                          if (paySpayBill && spayTargetAmount < spayGap) {
+                            const addSpay = Math.min(diffInflow, spayGap - spayTargetAmount);
+                            setSpayTargetAmount(Math.round((spayTargetAmount + addSpay) * 100) / 100);
+                            const rem = diffInflow - addSpay;
+                            if (rem > 0) setAllocMain(Math.round(((parseFloat(allocMain) || 0) + rem) * 100) / 100);
+                          } else {
+                            setAllocMain(Math.round(((parseFloat(allocMain) || 0) + diffInflow) * 100) / 100);
+                          }
+                        }}
                         className="btn btn-outline"
                         style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                       >
-                        ➕ ปัดเข้ากระเป๋าหลัก
+                        ➕ ปัดเข้า SPay / หลัก
                       </button>
                     </div>
                   ) : (
-                    <span className="badge badge-rose" style={{ fontSize: '0.85rem' }}>
-                      ⚠️ จัดสรรเกินเงินเข้า: ฿{Math.abs(diffInflow).toLocaleString()}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="badge badge-rose" style={{ fontSize: '0.85rem' }}>
+                        ⚠️ จัดสรรเกินเงินที่มี: ฿{Math.abs(diffInflow).toLocaleString()} (กระเป๋าจะติดลบ)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => applySmartAllocation(inflowAmount, allocationStrategy)}
+                        className="btn btn-primary"
+                        style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+                      >
+                        🪄 ปรับให้พอดี (Auto-Fit)
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center' }}>
               <button type="button" onClick={() => setShowAllocationModal(false)} className="btn btn-outline">
                 ปิด
               </button>
               <button
                 type="button"
+                disabled={diffInflow < 0 || totalAllocated <= 0}
                 onClick={handleExecuteAllocation}
-                className="btn btn-success"
-                style={{ padding: '10px 22px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}
+                className={diffInflow < 0 ? 'btn btn-outline' : 'btn btn-success'}
+                style={{
+                  padding: '10px 22px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  opacity: (diffInflow < 0 || totalAllocated <= 0) ? 0.6 : 1,
+                  cursor: (diffInflow < 0 || totalAllocated <= 0) ? 'not-allowed' : 'pointer'
+                }}
               >
-                <CheckCircle2 size={18} /> ยืนยันการจัดสรรและกระจายเงินจริงทันที
+                {diffInflow < 0 ? (
+                  <>
+                    <AlertCircle size={18} color="var(--accent-rose)" /> ยอดจัดสรรเกินเงินที่มี (คลิก Auto-Fit)
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} /> ยืนยันการจัดสรรและกระจายเงินจริงทันที
+                  </>
+                )}
               </button>
             </div>
 

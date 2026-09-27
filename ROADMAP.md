@@ -32,7 +32,7 @@
   - [x] 3-Axis Verdict Matrix Widget & Decision Controls
 
 - [x] **Phase 5: Personal Finance Modules (Multi-Account, Debt Tracker, Family Settlement, Net Worth)**
-  - [x] หน้าจัดการกระเป๋าบัญชี & Live Real-Time Allocation Assistant
+  - [x] หน้าจัดการกระเป๋าบัญชี & Smart Waterfall Allocation Assistant (จัดสรรตามเงินที่มีจริง ไม่ให้กระเป๋าติดลบ พร้อมกลยุทธ์ตามวันครบกำหนดชำระ)
   - [x] ระบบเคลียร์บิลครอบครัว (Family Settlement) พร้อมตัวเลือกกระเป๋าเงินตัดจ่าย/รับโอนเรียลไทม์
   - [x] หน้ารายการผ่อนของรายชิ้น & SPayLater / Debt Tracker
   - [x] ระบบสแกนสลิป & สรุป Net Worth Dashboard
