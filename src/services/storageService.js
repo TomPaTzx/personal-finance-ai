@@ -81,7 +81,7 @@ export const INITIAL_DATA = {
       name: 'กันเงินจ่าย Shopee SPayLater',
       bank: 'กสิกร (KBank)',
       category: 'SINKING_FUND',
-      purpose: 'พักเงินไว้จ่ายบิล SPayLater (บิลรอบนี้ ฿13,639.22 ครบกำหนด 10 ส.ค.)',
+      purpose: 'พักเงินไว้จ่ายบิล Shopee SPayLater ประจำรอบ',
       balance: 13640,
       currency: 'THB',
       updatedAt: new Date().toISOString()
@@ -141,7 +141,7 @@ export const INITIAL_DATA = {
       name: 'วงเงิน Shopee SPayLater',
       bank: 'ShopeePay',
       category: 'CREDIT_LINE',
-      purpose: 'วงเงินผ่อนของ ฿100,000 (บิลรอบนี้ ฿13,639.22 ครบกำหนด 10 ส.ค.)',
+      purpose: 'วงเงินผ่อนของ ฿100,000 (Shopee SPayLater)',
       balance: 68500,
       creditLimit: 100000,
       currency: 'THB',
@@ -437,7 +437,12 @@ export const INITIAL_DATA = {
   moneySavedTotal: 0,
   spayStatementStatus: 'UNPAID',
   spayStatementPaidAt: null,
-  spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)'
+  spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)',
+  monthlyIncomeMilestones: {
+    salaryReceived: true,
+    saturdayOtReceived: true,
+    eveningOtReceived: false
+  }
 };
 
 // Generate a Clean Slate with all accounts set to 0.00 balance
@@ -641,6 +646,12 @@ export const sanitizeSOTData = (parsed) => {
     spayStatementStatus: parsed.spayStatementStatus || 'UNPAID',
     spayStatementPaidAt: parsed.spayStatementPaidAt || null,
     spayStatementCycle: parsed.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)',
+    monthlyIncomeMilestones: {
+      salaryReceived: parsed.monthlyIncomeMilestones?.salaryReceived ?? true,
+      saturdayOtReceived: parsed.monthlyIncomeMilestones?.saturdayOtReceived ?? true,
+      eveningOtReceived: parsed.monthlyIncomeMilestones?.eveningOtReceived ?? false,
+      ...(parsed.monthlyIncomeMilestones || {})
+    },
     accounts: parsed.accounts || INITIAL_DATA.accounts,
     debts: updatedDebts,
     bnplItems,
