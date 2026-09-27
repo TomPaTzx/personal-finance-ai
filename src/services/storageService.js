@@ -466,6 +466,152 @@ export const createZeroedData = () => {
   };
 };
 
+// Reconcile / Auto-sync all existing BNPL items and Debts belonging to family members into familySettlements
+export const reconcileFamilySettlements = (rawFamily, bnplItems = [], debts = []) => {
+  let family = rawFamily && rawFamily.length > 0
+    ? JSON.parse(JSON.stringify(rawFamily))
+    : JSON.parse(JSON.stringify(INITIAL_DATA.familySettlements));
+
+  // Ensure 3 core persons exist
+  ['PERSON-JAENG', 'PERSON-PHRAE', 'PERSON-MOM'].forEach(pid => {
+    if (!family.some(p => p.id === pid)) {
+      const defaultP = INITIAL_DATA.familySettlements.find(p => p.id === pid);
+      if (defaultP) family.push(JSON.parse(JSON.stringify(defaultP)));
+    }
+  });
+
+  // 1. Reconcile BNPL Items
+  bnplItems.forEach(b => {
+    let targetPersonId = null;
+    if (b.owner === 'แจง' || b.owner === 'น้องพีเจ') {
+      targetPersonId = 'PERSON-JAENG';
+    } else if (b.owner === 'พี่แพร' || b.owner?.includes('แพร')) {
+      targetPersonId = 'PERSON-PHRAE';
+    } else if (b.owner === 'แม่') {
+      targetPersonId = 'PERSON-MOM';
+    }
+
+    if (!targetPersonId) return;
+
+    family = family.map(p => {
+      if (p.id !== targetPersonId) return p;
+
+      const items = p.items || [];
+      const bTitle = (b.title || b.itemName || '').trim();
+      const bAmount = parseFloat(b.amount || 0);
+
+      // Check if item already exists
+      const existingIdx = items.findIndex(i => {
+        if (i.linkedSourceId && i.linkedSourceId === b.id) return true;
+        if (i.id === `SYNC-${b.id}`) return true;
+        // Known initial mock pairings
+        if (b.id === 'BNPL-14' && (i.id === 'J-1' || i.title?.includes('B-KOOL'))) return true;
+        if (b.id === 'BNPL-09' && (i.id === 'J-2' || i.title?.toLowerCase().includes('merries'))) return true;
+        if (b.id === 'BNPL-06' && (i.id === 'J-3' || i.title?.toLowerCase().includes('d-nee') || i.title?.includes('ดีนี่'))) return true;
+        // Text match
+        if (bTitle && i.title && (i.title === bTitle || i.title.includes(bTitle) || bTitle.includes(i.title))) return true;
+        return false;
+      });
+
+      if (existingIdx >= 0) {
+        if (!items[existingIdx].linkedSourceId) {
+          items[existingIdx].linkedSourceId = b.id;
+        }
+        return { ...p, items };
+      }
+
+      // Add missing BNPL item to family settlement
+      const newItem = {
+        id: `SYNC-${b.id}`,
+        title: bTitle || 'ของฝากซื้อ SPayLater',
+        amount: bAmount,
+        type: 'THEY_OWE',
+        status: b.isPaidBack ? 'SETTLED' : 'PENDING',
+        note: b.note || 'ฝากซื้อผ่าน Shopee SPayLater',
+        linkedSourceId: b.id
+      };
+
+      return { ...p, items: [newItem, ...items] };
+    });
+  });
+
+  // 2. Reconcile Long-Term Debts
+  debts.forEach(d => {
+    let targetPersonId = null;
+    let settlementType = 'THEY_OWE';
+
+    if (d.linkedAccountId === 'CARD-JAENG') {
+      targetPersonId = 'PERSON-JAENG';
+      settlementType = 'WE_OWE';
+    } else if (d.linkedAccountId === 'CARD-MOM') {
+      targetPersonId = 'PERSON-MOM';
+      settlementType = 'WE_OWE';
+    } else if (d.linkedAccountId === 'CARD-PHRAE') {
+      targetPersonId = 'PERSON-PHRAE';
+      settlementType = 'WE_OWE';
+    } else if (d.owner === 'แจง' || d.owner === 'น้องพีเจ') {
+      targetPersonId = 'PERSON-JAENG';
+      settlementType = 'THEY_OWE';
+    } else if (d.owner === 'แม่') {
+      targetPersonId = 'PERSON-MOM';
+      settlementType = 'THEY_OWE';
+    } else if (d.owner === 'พี่แพร' || d.owner?.includes('แพร')) {
+      targetPersonId = 'PERSON-PHRAE';
+      settlementType = 'THEY_OWE';
+    }
+
+    if (!targetPersonId) return;
+
+    family = family.map(p => {
+      if (p.id !== targetPersonId) return p;
+
+      const items = p.items || [];
+      const dTitle = (d.itemName || '').trim();
+      const mth = parseFloat((d.monthlyPayment || (d.totalAmount / (d.totalInstallments || 1))).toFixed(2));
+      const remInst = parseInt(d.remainingInstallments) ?? d.totalInstallments;
+      const totalInst = parseInt(d.totalInstallments) || 1;
+
+      // Check if debt already exists in family settlement
+      const existingIdx = items.findIndex(i => {
+        if (i.linkedSourceId && i.linkedSourceId === d.id) return true;
+        if (i.id === `SYNC-${d.id}` || i.id === `ITEM-SYNC-${d.id.replace('DEBT-', '')}`) return true;
+        // Known initial pairings
+        if (d.id === 'DEBT-UOB-TAB' && (i.id === 'P-3' || i.title?.includes('แท็บเล็ต'))) return true;
+        if (d.id === 'SPAY-01' && (i.id === 'P-6' || i.title?.includes('Sony WH-1000XM5'))) return true;
+        // Text match
+        if (dTitle && i.title && (i.title.includes(dTitle) || dTitle.includes(i.title))) return true;
+        return false;
+      });
+
+      if (existingIdx >= 0) {
+        if (!items[existingIdx].linkedSourceId) {
+          items[existingIdx].linkedSourceId = d.id;
+        }
+        return { ...p, items };
+      }
+
+      // Add missing debt item to family settlement
+      const syncTitle = settlementType === 'WE_OWE' 
+        ? `ค่างวดผ่อน ${dTitle} (เราผ่อนคืนให้${p.personName})` 
+        : `ค่างวดผ่อน ${dTitle} (${p.personName}ผ่อนคืนเรา)`;
+
+      const newItem = {
+        id: `SYNC-${d.id}`,
+        title: syncTitle,
+        amount: mth,
+        type: settlementType,
+        status: (remInst === 0 || d.status === 'COMPLETED') ? 'SETTLED' : 'PENDING',
+        note: `งวดละ ฿${mth.toFixed(2)} (${remInst}/${totalInst} งวด)`,
+        linkedSourceId: d.id
+      };
+
+      return { ...p, items: [newItem, ...items] };
+    });
+  });
+
+  return family;
+};
+
 // Helper: Normalize / Sanitise SOT Object
 export const sanitizeSOTData = (parsed) => {
   if (!parsed || typeof parsed !== 'object') return INITIAL_DATA;
@@ -485,6 +631,10 @@ export const sanitizeSOTData = (parsed) => {
     });
   }
 
+  const bnplItems = parsed.bnplItems || INITIAL_DATA.bnplItems;
+  const rawFamily = parsed.familySettlements || INITIAL_DATA.familySettlements;
+  const familySettlements = reconcileFamilySettlements(rawFamily, bnplItems, updatedDebts);
+
   return {
     ...INITIAL_DATA,
     ...parsed,
@@ -493,9 +643,9 @@ export const sanitizeSOTData = (parsed) => {
     spayStatementCycle: parsed.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)',
     accounts: parsed.accounts || INITIAL_DATA.accounts,
     debts: updatedDebts,
-    bnplItems: parsed.bnplItems || INITIAL_DATA.bnplItems,
+    bnplItems,
     subscriptions: parsed.subscriptions || INITIAL_DATA.subscriptions,
-    familySettlements: parsed.familySettlements || INITIAL_DATA.familySettlements
+    familySettlements
   };
 };
 

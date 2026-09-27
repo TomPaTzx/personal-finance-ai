@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Users, Plus, CheckCircle2, ArrowRightLeft, CreditCard, Heart, Home, AlertCircle, Sparkles, Edit3, Trash2, Wallet, ArrowDownRight, ArrowUpRight } from 'lucide-react';
-import { addAuditEvent } from '../services/storageService';
+import { Users, Plus, CheckCircle2, ArrowRightLeft, CreditCard, Heart, Home, AlertCircle, Sparkles, Edit3, Trash2, Wallet, ArrowDownRight, ArrowUpRight, RefreshCw } from 'lucide-react';
+import { addAuditEvent, reconcileFamilySettlements } from '../services/storageService';
 import { useModalNotification } from '../context/ModalNotificationContext';
 
 export default function FamilySettlementHub({ sotData, updateSOTData }) {
@@ -257,6 +257,19 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
     toast(`🎉 เคลียร์ยอดสุทธิกับ ${selectedPerson.personName} เรียบร้อยแล้ว! ${autoUpdateWallet ? `(ตัดปรับยอดในกระเป๋า ${selectedWallet?.name})` : ''}`, { type: 'success' });
   };
 
+  // Reconcile and Auto-sync All Existing BNPL and Debt Items from SOT
+  const handleReconcileFromDebts = () => {
+    const reconciledFamily = reconcileFamilySettlements(
+      sotData.familySettlements,
+      sotData.bnplItems,
+      sotData.debts
+    );
+    let nextData = { ...sotData, familySettlements: reconciledFamily };
+    nextData = addAuditEvent(nextData, 'FAMILY_SETTLEMENT', 'ALL', 'MANUAL_RECONCILE_SYNCED');
+    updateSOTData(nextData);
+    toast('✨ ตรวจสอบและซิงค์รายการหนี้สิน/ฝากซื้อของครอบครัวครบถ้วนแล้ว!', { type: 'success' });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
@@ -271,9 +284,19 @@ export default function FamilySettlementHub({ sotData, updateSOTData }) {
             จัดการค่าน้ำ ค่าไฟ ค่า Coway บัตรแม่/พี่แพร ค่ากับข้าว และยอดฝากผ่อน Shopee SPayLater สิ้นเดือนหักลบยอดสุทธิและเลือกกระเป๋าตัดเงินได้อิสระ
           </p>
         </div>
-        <button onClick={handleOpenAdd} className="btn btn-primary">
-          <Plus size={16} /> เพิ่มรายการบิล/ยอดค้าง
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button 
+            onClick={handleReconcileFromDebts} 
+            className="btn btn-outline"
+            style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+            title="สแกนและดึงรายการหนี้สิน/ฝากซื้อที่เคยบันทึกไว้ของแจง, พี่แพร, แม่ เข้ามาในบิลครอบครัวทันที"
+          >
+            <RefreshCw size={14} /> ซิงค์หนี้สิน & BNPL ที่เคยบันทึกไว้
+          </button>
+          <button onClick={handleOpenAdd} className="btn btn-primary">
+            <Plus size={16} /> เพิ่มรายการบิล/ยอดค้าง
+          </button>
+        </div>
       </div>
 
       {/* Person Selector Tabs */}
