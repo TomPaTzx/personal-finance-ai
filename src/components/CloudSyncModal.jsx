@@ -12,7 +12,8 @@ import {
   Database,
   Smartphone,
   Laptop,
-  HardDrive
+  HardDrive,
+  Copy
 } from 'lucide-react';
 import { fetchCloudSOTData, pushCloudSOTData } from '../services/storageService';
 import { useModalNotification } from '../context/ModalNotificationContext';
@@ -21,7 +22,45 @@ export default function CloudSyncModal({ isOpen, onClose, sotData, updateSOTData
   const { confirm: modalConfirm, toast } = useModalNotification();
   const [isPushing, setIsPushing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
+  const [syncCodeInput, setSyncCodeInput] = useState('');
   const fileInputRef = useRef(null);
+
+  const handleCopyQuickSync = () => {
+    try {
+      const jsonStr = JSON.stringify(sotData);
+      navigator.clipboard.writeText(jsonStr);
+      toast('📋 คัดลอกโค้ดข้อมูลทั้งหมดเรียบร้อยแล้ว! ส่งเข้าไลน์แล้วนำไปวางในมือถือได้เลย', { type: 'success' });
+    } catch (e) {
+      toast('⚠️ คัดลอกไม่สำเร็จ', { type: 'error' });
+    }
+  };
+
+  const handleApplyQuickSync = async () => {
+    if (!syncCodeInput.trim()) {
+      toast('⚠️ กรุณาวางโค้ดข้อมูลก่อนกดซิงค์', { type: 'error' });
+      return;
+    }
+    try {
+      const parsed = JSON.parse(syncCodeInput.trim());
+      if (!parsed || !parsed.accounts) {
+        toast('⚠️ โครงสร้างโค้ดไม่ถูกต้อง', { type: 'error' });
+        return;
+      }
+      const ok = await modalConfirm({
+        title: '📥 ยืนยันซิงค์ข้อมูลลงเครื่องนี้',
+        message: 'ต้องการนำเข้าข้อมูลทั้งหมดและเขียนทับข้อมูลในเครื่องนี้ทันทีหรือไม่?',
+        variant: 'success'
+      });
+      if (ok) {
+        updateSOTData(parsed);
+        toast('🎉 ซิงค์ข้อมูลทั้งหมดข้ามเครื่องสำเร็จแล้ว!', { type: 'success' });
+        setSyncCodeInput('');
+        onClose();
+      }
+    } catch (e) {
+      toast('⚠️ โค้ดข้อมูลผิดพลาด ไม่สามารถอ่านได้ (กรุณาคัดลอกมาให้ครบ)', { type: 'error' });
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -212,15 +251,15 @@ export default function CloudSyncModal({ isOpen, onClose, sotData, updateSOTData
               width: '10px',
               height: '10px',
               borderRadius: '50%',
-              background: cloudStatus === 'synced' ? 'var(--accent-emerald)' : 'var(--accent-cyan)',
-              boxShadow: `0 0 8px ${cloudStatus === 'synced' ? 'var(--accent-emerald)' : 'var(--accent-cyan)'}`
+              background: cloudStatus === 'synced' ? 'var(--accent-emerald)' : cloudStatus === 'error' ? 'var(--accent-rose)' : 'var(--accent-cyan)',
+              boxShadow: `0 0 8px ${cloudStatus === 'synced' ? 'var(--accent-emerald)' : cloudStatus === 'error' ? 'var(--accent-rose)' : 'var(--accent-cyan)'}`
             }}></div>
             <div>
               <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#fff' }}>
-                {cloudStatus === 'synced' ? 'สถานะ: เชื่อมต่อ Cloud สำเร็จ 🟢' : 'สถานะ: กำลังเชื่อมต่อ... 🟡'}
+                {cloudStatus === 'synced' ? 'สถานะ: เชื่อมต่อ Cloud สำเร็จ 🟢' : cloudStatus === 'error' ? 'สถานะ: Supabase Cloud ออฟไลน์ 🔴' : 'สถานะ: กำลังเชื่อมต่อ... 🟡'}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                ซิงค์ล่าสุด: {lastSyncTime ? lastSyncTime.toLocaleTimeString('th-TH') : 'เมื่อเริ่มต้นระบบ'}
+                {cloudStatus === 'error' ? 'โปรเจกต์อาจถูกระงับ (Paused) ใน Supabase' : `ซิงค์ล่าสุด: ${lastSyncTime ? lastSyncTime.toLocaleTimeString('th-TH') : 'เมื่อเริ่มต้นระบบ'}`}
               </div>
             </div>
           </div>
@@ -234,10 +273,86 @@ export default function CloudSyncModal({ isOpen, onClose, sotData, updateSOTData
           </button>
         </div>
 
-        {/* Device Sync Scenarios Guide */}
+        {/* Offline Diagnostic Alert */}
+        {cloudStatus === 'error' && (
+          <div style={{
+            background: 'rgba(244, 63, 94, 0.12)',
+            border: '1px solid rgba(244, 63, 94, 0.35)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '12px 14px',
+            marginBottom: '16px',
+            fontSize: '0.8rem',
+            color: '#fff',
+            lineHeight: 1.5
+          }}>
+            <div style={{ fontWeight: 700, color: 'var(--accent-rose)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+              <AlertTriangle size={16} /> Supabase Cloud ออฟไลน์ (ข้อมูลจึงยังไม่วิ่งข้ามเครื่องอัตโนมัติ)
+            </div>
+            โปรเจกต์ฐานข้อมูล <code>neflzvrowmjkgixaejzt</code> บน Supabase อาจถูก Pause (โควตาฟรีหลัง 7 วัน) ทำให้คอมและมือถืออ่านข้อมูลเฉพาะในเครื่องตัวเอง<br/>
+            👉 <strong>วิธีให้ตัวเลขตรงกันทันที:</strong> ใช้กล่อง <strong>"ซิงค์ด่วนข้ามเครื่องผ่านโค้ด"</strong> ด้านล่างเพื่อส่งข้อมูลจากคอมเข้ามือถือได้ทันที 100%!
+          </div>
+        )}
+
+        {/* Quick Text Sync (Peer-to-Peer without Cloud) */}
         <div style={{
           background: 'rgba(6, 182, 212, 0.05)',
-          border: '1px solid rgba(6, 182, 212, 0.2)',
+          border: '1px solid rgba(6, 182, 212, 0.25)',
+          borderRadius: 'var(--radius-md)',
+          padding: '14px 16px',
+          marginBottom: '18px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Copy size={16} color="var(--accent-cyan)" />
+              <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fff' }}>
+                ⚡ ซิงค์ด่วนข้ามเครื่องผ่านโค้ด (Quick Text Sync)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyQuickSync}
+              className="btn btn-primary"
+              style={{ fontSize: '0.75rem', padding: '5px 12px' }}
+            >
+              <Copy size={13} /> คัดลอกโค้ดข้อมูลเครื่องนี้
+            </button>
+          </div>
+
+          <p style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', margin: '0 0 10px 0' }}>
+            หาก Cloud ออฟไลน์: กดคัดลอกโค้ดจากคอม ➔ ส่งเข้าไลน์ ➔ แล้วนำมาวางในมือถือ ตัวเลขจะตรงกันทันที
+          </p>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input 
+              type="text"
+              value={syncCodeInput}
+              onChange={(e) => setSyncCodeInput(e.target.value)}
+              placeholder="วางโค้ดข้อมูลที่คัดลอกมาจากอีกเครื่องที่นี่..."
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                background: 'rgba(0, 0, 0, 0.5)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                color: '#fff',
+                fontSize: '0.78rem'
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleApplyQuickSync}
+              className="btn btn-success"
+              style={{ fontSize: '0.78rem', padding: '8px 14px', fontWeight: 700, whiteSpace: 'nowrap' }}
+            >
+              📥 นำเข้าลงเครื่องนี้
+            </button>
+          </div>
+        </div>
+
+        {/* Device Sync Scenarios Guide */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-sm)',
           padding: '12px',
           fontSize: '0.8rem',

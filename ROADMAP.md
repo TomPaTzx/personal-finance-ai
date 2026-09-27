@@ -53,6 +53,8 @@
   - [x] ระบบ Real OCR & PromptPay QR Code Scanner (อ่านสลิปธนาคารจริง)
   - [x] ระบบแกะรายการผ่อน SPayLater จากภาพแคปหน้าจอ Shopee (สร้างหนี้/ปรับยอดผ่อนให้อัตโนมัติ)
   - [x] ระบบ Dogfooding & Single-User Private Validation Ready
+  - [x] ระบบสแกนสลิป Live Cloud Pockets Strip แสดงยอดทุกกระเป๋าแบบเรียลไทม์ + พรีวิวยอดคงเหลือสุทธิก่อน/หลังตัดสลิป ป้องกันการเลือกกระเป๋าผิดและสับสนยอดเงินคงเหลือธนาคาร vs Pockets
+  - [x] ระบบ 1-Click เติมเงินเดือนด่วนบนการ์ด KTB-SALARY + ระบบ Quick Text Sync ข้ามอุปกรณ์ รองรับการใช้งานแม้ Supabase Cloud ออฟไลน์
 
 - [ ] **Phase 8 (Future Blueprint): Commercial Mobile App & SaaS Transformation (แผนต่อยอดสู่แอปมือถือเพื่อการค้า)**
   - [ ] **Track 1: Multi-Tenant Architecture & Auth (ระบบสมาชิก & แยกฐานข้อมูลผู้ใช้)**

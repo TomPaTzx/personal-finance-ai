@@ -21,7 +21,8 @@ import {
   Tag,
   BrainCircuit,
   Key,
-  Mail
+  Mail,
+  Wallet
 } from 'lucide-react';
 import { performSlipOCR } from '../services/slipParserService';
 import { analyzeSlipWithGeminiVision, getStoredGeminiApiKey, getStoredGeminiModel } from '../services/geminiVisionService';
@@ -42,9 +43,20 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
   const [merchant, setMerchant] = useState('');
   const [bankRef, setBankRef] = useState('');
   const [category, setCategory] = useState('FOOD');
-  const [selectedAccount, setSelectedAccount] = useState('KBANK-FOOD');
+  const [selectedAccount, setSelectedAccount] = useState(() => {
+    return localStorage.getItem('PF_LAST_SCAN_ACCOUNT') || 'KBANK-DEBIT';
+  });
   const [selectedDebtId, setSelectedDebtId] = useState('SPAY-01');
   const [customNote, setCustomNote] = useState('');
+
+  const handleAccountChange = (newAccId) => {
+    setSelectedAccount(newAccId);
+    try {
+      localStorage.setItem('PF_LAST_SCAN_ACCOUNT', newAccId);
+    } catch (e) {}
+  };
+
+  const currentAcc = (sotData.accounts || []).find(a => a.id === selectedAccount) || (sotData.accounts || [])[0];
 
   // BNPL Specific states
   const [itemName, setItemName] = useState('');
@@ -158,11 +170,13 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
           setActionType(gData.suggestedAction || 'EXPENSE');
 
           if (gData.suggestedAccountId) {
-            setSelectedAccount(gData.suggestedAccountId);
+            handleAccountChange(gData.suggestedAccountId);
           } else if (gData.documentType === 'SPAYLATER_STATEMENT') {
-            setSelectedAccount('KBANK-SPAY');
+            handleAccountChange('KBANK-SPAY');
+          } else if (gData.suggestedAction === 'EXPENSE' && (gData.merchantOrReceiver?.includes('Shinkanzen') || gData.title?.includes('ซูชิ') || gData.title?.includes('อาหาร') || gData.category === 'FOOD')) {
+            handleAccountChange('KBANK-FOOD');
           } else {
-            setSelectedAccount('KBANK-FOOD');
+            handleAccountChange(localStorage.getItem('PF_LAST_SCAN_ACCOUNT') || 'KBANK-DEBIT');
           }
 
           if (gData.lineItems && gData.lineItems.length > 0) {
@@ -194,7 +208,14 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
         setBankRef(res.data.bankRef || '');
         setCategory(res.data.detectedCategory || 'FOOD');
         setActionType(res.data.suggestedAction || 'EXPENSE');
-        if (res.data.matchedDebtId) setSelectedDebtId(res.data.matchedDebtId);
+        if (res.data.matchedDebtId || res.data.suggestedAction === 'DEBT_PAYMENT') {
+          setSelectedDebtId(res.data.matchedDebtId || 'SPAY-01');
+          handleAccountChange('KBANK-SPAY');
+        } else if (res.data.detectedCategory === 'FOOD') {
+          handleAccountChange('KBANK-FOOD');
+        } else {
+          handleAccountChange(localStorage.getItem('PF_LAST_SCAN_ACCOUNT') || 'KBANK-DEBIT');
+        }
         if (res.data.detectedItemName) setItemName(res.data.detectedItemName);
         if (res.data.detectedInstallments) setTotalInstallments(res.data.detectedInstallments.toString());
         if (res.data.detectedMonthlyAmount) setMonthlyPayment(res.data.detectedMonthlyAmount.toString());
@@ -478,8 +499,8 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
                     </div>
                   )}
                   {parsed.availableBalance !== null && (
-                    <div style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)' }}>
-                      (คงเหลือในบัญชี: ฿{parsed.availableBalance.toLocaleString()})
+                    <div style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)' }} title="ยอดเงินคงเหลือรวมทั้งบัญชีเงินฝากกสิกรไทยจริง (ธนาคาร)">
+                      (ยอดถอนได้รวมทั้งบัญชีธนาคาร: ฿{parsed.availableBalance.toLocaleString()})
                     </div>
                   )}
                 </div>
@@ -506,12 +527,28 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
                     setAmount(parsed.amount.toString());
                     setMerchant(parsed.receiverName || 'K PLUS Transfer');
                     setBankRef(parsed.txRef || '');
-                    setCustomNote(`โอนเงินสำเร็จ ${parsed.txDate} (คงเหลือ ฿${parsed.availableBalance?.toLocaleString()})`);
+                    setCustomNote(`โอนเงินสำเร็จ ${parsed.txDate} (ยอดถอนได้ธนาคาร ฿${parsed.availableBalance?.toLocaleString()})`);
                     setActionType('EXPENSE');
+                    setScannedResult({
+                      title: emailInbox.subject || 'แจ้งเตือน K PLUS',
+                      amount: parsed.amount,
+                      merchantOrReceiver: parsed.receiverName,
+                      transactionRef: parsed.txRef,
+                      isGeminiVision: false,
+                      modelUsed: 'Make.com K PLUS Email Automation'
+                    });
                     toast(`⚡ ดึงยอด ฿${parsed.amount.toLocaleString()} โอนให้ [${parsed.receiverName}] ลงแบบฟอร์มแล้ว!`, { type: 'success' });
                   } else {
                     setMerchant(emailInbox.subject || 'K PLUS Bill Payment');
                     setCustomNote(emailInbox.snippet || '');
+                    setScannedResult({
+                      title: emailInbox.subject || 'แจ้งเตือน K PLUS',
+                      amount: 0,
+                      merchantOrReceiver: emailInbox.subject || 'K PLUS Transfer',
+                      transactionRef: 'EMAIL-' + Date.now().toString().slice(-6),
+                      isGeminiVision: false,
+                      modelUsed: 'Make.com K PLUS Email Automation'
+                    });
                     toast('📋 ดึงข้อความจากอีเมลมาลงในแบบฟอร์มแล้ว! ใส่ยอดเงินแล้วกดยืนยันได้ทันที', { type: 'success' });
                   }
                 }}
@@ -524,6 +561,60 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
           </div>
         );
       })()}
+
+      {/* Live Cloud Pockets Strip (Realtime SOT Accounts View) */}
+      <div className="glass-panel" style={{ padding: '16px 20px', background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(6, 182, 212, 0.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Wallet size={18} color="var(--accent-cyan)" />
+            <h3 style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', margin: 0 }}>
+              ยอดเงินในกระเป๋าของคุณ (อัปเดตสดจากเมนูจัดการกระเป๋าเงิน):
+            </h3>
+          </div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            💡 คลิกเลือกกระเป๋าที่ต้องการให้สลิปตัดจ่ายได้ทันที
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px' }}>
+          {(sotData.accounts || []).filter(a => a.id !== 'SPAYLATER').map(acc => {
+            const isSelected = selectedAccount === acc.id;
+            return (
+              <div 
+                key={acc.id}
+                onClick={() => handleAccountChange(acc.id)}
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  background: isSelected ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                  border: isSelected ? '2px solid var(--accent-cyan)' : '1px solid var(--border-subtle)',
+                  boxShadow: isSelected ? '0 0 15px rgba(6, 182, 212, 0.25)' : 'none',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', color: isSelected ? 'var(--accent-cyan)' : 'var(--text-secondary)', fontWeight: 600 }}>
+                    {acc.name.split(':')[0]}
+                  </span>
+                  {isSelected && (
+                    <span className="badge badge-cyan" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>กำลังเลือกตัด</span>
+                  )}
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: acc.balance > 0 ? '#fff' : 'var(--text-muted)' }}>
+                  ฿{acc.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {acc.bank} • {acc.name.includes(':') ? acc.name.split(':')[1]?.trim() : acc.purpose?.slice(0, 24)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* AI Vision Engine Status & Settings Bar */}
       <div style={{ 
@@ -887,17 +978,52 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
 
                   {/* Account Selector */}
                   <div>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                      {actionType === 'INCOME' ? 'ฝากเข้ากระเป๋า:' : 'ตัดจ่ายจากกระเป๋า:'}
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {actionType === 'INCOME' ? 'ฝากเข้ากระเป๋า:' : 'ตัดจ่ายจากกระเป๋า:'}
+                      </label>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)' }}>
+                        ปัจจุบันมี ฿{currentAcc?.balance?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                      </span>
+                    </div>
+
+                    {/* Quick Pockets Switcher Pills */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                      {[
+                        { id: 'KBANK-DEBIT', label: '🛒 เดบิตสแกน' },
+                        { id: 'KBANK-FOOD', label: '🍜 กินแซ่บ' },
+                        { id: 'KBANK-MAIN', label: '🎯 กระเป๋าหลัก' },
+                        { id: 'KBANK-SPAY', label: '🛍️ กันจ่าย SPay' },
+                        { id: 'KTB-SALARY', label: '📥 กรุงไทย' }
+                      ].map(pill => (
+                        <button
+                          key={pill.id}
+                          type="button"
+                          onClick={() => handleAccountChange(pill.id)}
+                          style={{
+                            fontSize: '0.72rem',
+                            padding: '4px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: `1px solid ${selectedAccount === pill.id ? 'var(--accent-cyan)' : 'var(--border-subtle)'}`,
+                            background: selectedAccount === pill.id ? 'rgba(6, 182, 212, 0.2)' : 'rgba(255,255,255,0.03)',
+                            color: selectedAccount === pill.id ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                            cursor: 'pointer',
+                            fontWeight: selectedAccount === pill.id ? 700 : 400
+                          }}
+                        >
+                          {pill.label}
+                        </button>
+                      ))}
+                    </div>
+
                     <select 
                       value={selectedAccount} 
-                      onChange={(e) => setSelectedAccount(e.target.value)}
+                      onChange={(e) => handleAccountChange(e.target.value)}
                       style={{
                         width: '100%',
                         padding: '9px 12px',
                         background: 'rgba(0,0,0,0.5)',
-                        border: '1px solid var(--border-subtle)',
+                        border: '1px solid var(--accent-cyan)',
                         borderRadius: 'var(--radius-sm)',
                         color: '#fff'
                       }}
@@ -906,6 +1032,60 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
                         <option key={a.id} value={a.id}>{a.name} (คงเหลือ ฿{a.balance.toLocaleString()})</option>
                       ))}
                     </select>
+
+                    {/* Live Deduction Impact Preview */}
+                    {currentAcc && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: (currentAcc.balance < (parseFloat(amount) || 0) && actionType === 'EXPENSE')
+                          ? 'rgba(244, 63, 94, 0.12)' 
+                          : 'rgba(6, 182, 212, 0.08)',
+                        border: `1px solid ${(currentAcc.balance < (parseFloat(amount) || 0) && actionType === 'EXPENSE') ? 'rgba(244, 63, 94, 0.4)' : 'rgba(6, 182, 212, 0.3)'}`,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '8px'
+                      }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            กระเป๋าที่เลือก: <strong style={{ color: '#fff' }}>{currentAcc.name}</strong>
+                          </div>
+                          <div style={{ fontSize: '0.82rem', marginTop: '2px' }}>
+                            ยอดปัจจุบัน: <strong>฿{currentAcc.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> 
+                            {amount && !isNaN(parseFloat(amount)) && (
+                              <span style={{ color: actionType === 'INCOME' ? 'var(--accent-emerald)' : 'var(--accent-rose)', fontWeight: 600 }}>
+                                {' '}{actionType === 'INCOME' ? '+' : '-'}฿{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {actionType === 'INCOME' ? 'ยอดหลังรับเงิน:' : 'ยอดคงเหลือหลังตัด:'}
+                          </div>
+                          <div style={{ 
+                            fontSize: '1.05rem', 
+                            fontWeight: 800, 
+                            color: (actionType === 'EXPENSE' && currentAcc.balance - (parseFloat(amount) || 0) < 0) 
+                              ? 'var(--accent-rose)' 
+                              : 'var(--accent-cyan)' 
+                          }}>
+                            ฿{(actionType === 'INCOME' 
+                              ? (currentAcc.balance + (parseFloat(amount) || 0)) 
+                              : (currentAcc.balance - (parseFloat(amount) || 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          {actionType === 'EXPENSE' && currentAcc.balance - (parseFloat(amount) || 0) < 0 && (
+                            <div style={{ fontSize: '0.68rem', color: 'var(--accent-rose)', fontWeight: 600 }}>
+                              ⚠️ ยอดเงินในกระเป๋าไม่พอ
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

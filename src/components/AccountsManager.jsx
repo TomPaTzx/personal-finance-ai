@@ -708,13 +708,33 @@ export default function AccountsManager({ sotData, updateSOTData }) {
                   ฿{acc.balance.toLocaleString()}
                 </div>
               </div>
-              <button 
-                onClick={() => handleOpenEditAccount(acc)}
-                className="btn btn-outline" 
-                style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-              >
-                แก้ตัวเลข
-              </button>
+
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {(acc.id === 'KTB-SALARY' || acc.category === 'SALARY') && acc.balance === 0 && (
+                  <button
+                    onClick={() => {
+                      const updatedAccounts = accounts.map(a => a.id === acc.id ? { ...a, balance: 17993.32, updatedAt: new Date().toISOString() } : a);
+                      let nextData = { ...sotData, accounts: updatedAccounts };
+                      nextData = addAuditEvent(nextData, 'ACCOUNT', acc.id, 'QUICK_SALARY_SET', { balance: 17993.32 });
+                      updateSOTData(nextData);
+                      toast('🎉 เติมยอดเงินเดือนฐาน ฿17,993.32 เรียบร้อยแล้ว!', { type: 'success' });
+                    }}
+                    className="btn btn-success"
+                    style={{ fontSize: '0.72rem', padding: '4px 8px', fontWeight: 700 }}
+                    title="คลิกเดียวเติมยอดเงินเดือนฐาน ฿17,993.32 ทันที"
+                  >
+                    ⚡ เติมเงินเดือน ฿17,993.32
+                  </button>
+                )}
+
+                <button 
+                  onClick={() => handleOpenEditAccount(acc)}
+                  className="btn btn-outline" 
+                  style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                >
+                  แก้ตัวเลข
+                </button>
+              </div>
             </div>
           </div>
         ))}
