@@ -218,7 +218,7 @@ export const INITIAL_DATA = {
     { id: 'BNPL-03', title: 'ชำระเงินหน้าร้าน - Shinkanzen Lotus Tiwanon', amount: 626.00, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: false, note: 'กระเป๋า 2 กินแซ่บ' },
     { id: 'BNPL-04', title: 'ยาสีฟันเทพไทย TEPTHAI 70g แท้ 100%', amount: 168.00, category: 'LIFESTYLE', owner: 'ตัวเอง', isPaidBack: false, note: 'ของใช้ส่วนตัว' },
     { id: 'BNPL-05', title: 'Mega We Care Lecithin เมก้า วีแคร์ เลซิติน [30 แคปซูล]', amount: 85.00, category: 'HEALTH', owner: 'แม่', isPaidBack: false, note: 'ของแม่' },
-    { id: 'BNPL-06', title: 'ไก่ทอดเดชา สูตรหาดใหญ่', amount: 303.00, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: false, note: 'ค่าอาหาร' },
+    { id: 'BNPL-06', title: 'ไก่ทอดแมค สูตรสไปซี่', amount: 303.00, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: false, note: 'McDonald’s ไก่ทอดแมค' },
     { id: 'BNPL-07', title: '(ปิดฝาแน่น/สเปรย์) Saker ยกเซ็ต (12 ขวด) สเปรย์แอลกอฮอล์', amount: 935.00, category: 'KIDS', owner: 'น้องพีเจ', isPaidBack: false, note: 'ของใช้น้องพีเจ แจงฝากซื้อ' },
     { id: 'BNPL-08', title: '(1 ลัง 4 ห่อ) PASEO พาซิโอ คิตตี้ กระดาษชำระ 4 ชั้น', amount: 224.00, category: 'HOME', owner: 'บ้าน', isPaidBack: false, note: 'ของใช้ในบ้าน' },
     { id: 'BNPL-09', title: 'ชำระเงินหน้าร้าน - สุกี้ตี๋น้อย (สาขาแจ้งวัฒนะ)', amount: 276.06, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: false, note: 'ค่าอาหาร' },

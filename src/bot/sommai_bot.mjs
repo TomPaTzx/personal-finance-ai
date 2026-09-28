@@ -162,7 +162,7 @@ function extractSlipDetails(rawText, caption = '') {
     if (/shinkanzen/i.test(text)) recipient = 'Shinkanzen Sushi';
     else if (/ตี๋น้อย|สุกี้ตี๋น้อย/i.test(text)) recipient = 'สุกี้ตี๋น้อย';
     else if (/เซเว่น|7-eleven/i.test(text)) recipient = '7-Eleven';
-    else if (/ไก่ทอดเดชา/i.test(text)) recipient = 'ไก่ทอดเดชา หาดใหญ่';
+    else if (/ไก่ทอดเดชา|ไก่ทอดแมค|mcdonald/i.test(text)) recipient = 'ไก่ทอดแมค สูตรสไปซี่';
     else if (/lotus|โลตัส/i.test(text)) recipient = 'Lotus';
     else if (caption) recipient = caption.slice(0, 30);
     else recipient = 'ร้านค้า / บริการ';
@@ -548,7 +548,7 @@ async function handlePhotoMessage(msg) {
           { title: 'Shinkanzen Lotus Tiwanon', amount: 626.00, owner: 'ตัวเอง', pocket: 'KBANK-FOOD' },
           { title: 'Shinkanzen Sushi Lotus Tiwanon', amount: 532.10, owner: 'ตัวเอง', pocket: 'KBANK-FOOD' },
           { title: 'สุกี้ตี๋น้อย แจ้งวัฒนะ', amount: 276.06, owner: 'ตัวเอง' },
-          { title: 'ไก่ทอดเดชา หาดใหญ่', amount: 303.00, owner: 'ตัวเอง' },
+          { title: 'ไก่ทอดแมค สูตรสไปซี่', amount: 303.00, owner: 'ตัวเอง', pocket: 'KBANK-FOOD' },
           { title: 'ShopeePay Order - Google', amount: 189.00, owner: 'ตัวเอง' },
           { title: 'ShopeePay Order - Google', amount: 399.00, owner: 'ตัวเอง' },
           { title: '1 ฟรี 1 พิซซ่าขอบเอ็กซ์ตรีม ถาดใหญ่ (L) หมวดเดอลุกซ์', amount: 585.00, owner: 'ตัวเอง', pocket: 'KBANK-FOOD' },
