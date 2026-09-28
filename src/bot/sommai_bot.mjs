@@ -1,6 +1,6 @@
 /**
- * Sommai Telegram Bot Service v2.0
- * Multi-Bill Handling, Visual Reply Threading, and Smart Bank Slip Recognition
+ * Sommai Telegram Bot Service v2.1
+ * Multi-Bill Threading + Interactive Owner & Pocket Pickers
  */
 import { createClient } from '@supabase/supabase-js';
 import { createWorker } from 'tesseract.js';
@@ -12,7 +12,7 @@ const SUPABASE_URL = 'https://neflzvrowmjkgixaejzt.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_uFoc3K6tzISb8LXv-CBDLA_cQltuQBx';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// In-memory pending confirmations keyed by photo message_id: msgId -> draftData
+// In-memory pending confirmations: msgId -> draftData
 const pendingDrafts = new Map();
 
 // Helper: Telegram API Call
@@ -113,7 +113,6 @@ async function saveSOTToCloud(sotData) {
 function extractSlipDetails(rawText, caption = '') {
   const text = `${caption}\n${rawText}`;
 
-  // 1. Detect Bank / Source
   let bankName = 'ธนาคาร / ร้านค้า';
   let defaultPocket = 'KBANK-DEBIT';
 
@@ -134,7 +133,6 @@ function extractSlipDetails(rawText, caption = '') {
     defaultPocket = 'KBANK-SPAY';
   }
 
-  // 2. Detect Amount (e.g. 1,250.00 | 350.00 | 12024.92)
   let detectedAmount = 0;
   const amountRegexes = [
     /(?:ยอดที่ต้องชำระ|จำนวนเงิน|ยอดเงิน|โอนเงิน|ชำระเงิน|Total|Amount|฿|B)[^\d]*([\d,]+\.\d{2})/i,
@@ -153,7 +151,6 @@ function extractSlipDetails(rawText, caption = '') {
     }
   }
 
-  // 3. Detect Recipient / Merchant
   let recipient = '';
   const recipientMatch = text.match(/(?:ไปยัง|ผู้รับโอน|โอนให้|To|Receiver|Merchant|ร้านค้า|จ่ายให้)\s*[:：]?\s*([^\n\r]+)/i);
   if (recipientMatch && recipientMatch[1]) {
@@ -169,7 +166,6 @@ function extractSlipDetails(rawText, caption = '') {
     else recipient = 'ร้านค้า / บริการ';
   }
 
-  // 4. Detect Reference Number
   let bankRef = '';
   const refMatch = text.match(/(?:รหัสอ้างอิง|เลขอ้างอิง|Ref|Txn Ref|เลขที่รายการ)\s*[:：]?\s*([\w\d]+)/i) ||
                    text.match(/([0-9A-Z]{12,30})/);
@@ -177,7 +173,6 @@ function extractSlipDetails(rawText, caption = '') {
     bankRef = refMatch[1].trim();
   }
 
-  // 5. Detect Date / Time
   let timeStr = '';
   const timeMatch = text.match(/(\d{1,2}\s*(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)[^\n\r]*)/i) ||
                     text.match(/(\d{1,2}:\d{2}(?::\d{2})?\s*(?:น\.|PM|AM)?)/i);
@@ -185,7 +180,6 @@ function extractSlipDetails(rawText, caption = '') {
     timeStr = timeMatch[1].trim();
   }
 
-  // Category detection
   let category = 'DAILY';
   if (/อาหาร|กิน|shinkanzen|ตี๋น้อย|ข้าว|กาแฟ|food|cafe/i.test(text)) {
     category = 'FOOD';
@@ -198,6 +192,13 @@ function extractSlipDetails(rawText, caption = '') {
     defaultPocket = 'KBANK-HOME';
   }
 
+  // Detect owner from caption
+  let detectedOwner = 'ตัวเอง';
+  if (/พีเจ|saker|merries|ลูก/i.test(caption)) detectedOwner = 'น้องพีเจ';
+  else if (/แพร|sony|หูฟัง/i.test(caption)) detectedOwner = 'พี่แพร';
+  else if (/แม่|ประกันสังคม/i.test(caption)) detectedOwner = 'แม่';
+  else if (/บ้าน/i.test(caption)) detectedOwner = 'บ้าน';
+
   return {
     bankName,
     detectedAmount,
@@ -205,7 +206,8 @@ function extractSlipDetails(rawText, caption = '') {
     bankRef: bankRef ? `Ref: ${bankRef.slice(-8)}` : '',
     timeStr,
     defaultPocket,
-    category
+    category,
+    detectedOwner
   };
 }
 
@@ -224,6 +226,127 @@ async function performImageOCR(buffer) {
   }
 }
 
+// Generate Summary Text for Draft
+function renderDraftSummaryText(draftData) {
+  if (draftData.type === 'SHOPEE_STATEMENT') {
+    const pjTotal = draftData.items.filter(i => i.owner === 'น้องพีเจ').reduce((s, i) => s + i.amount, 0);
+    const phraeTotal = draftData.items.filter(i => i.owner === 'พี่แพร').reduce((s, i) => s + i.amount, 0);
+    const momTotal = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน').reduce((s, i) => s + i.amount, 0);
+    const myTotal = draftData.items.filter(i => i.owner === 'ตัวเอง').reduce((s, i) => s + i.amount, 0);
+
+    return `
+🧾 <b>บิล Shopee SPayLater (อ้างอิงรูปด้านบน ☝️)</b>
+━━━━━━━━━━━━━━━━━━━
+💰 <b>ยอดรวมบิล:</b> ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+📅 <b>ครบกำหนด:</b> ${draftData.dueDate}
+
+📦 <b>สรุปแยกตามคนจ่าย:</b>
+• 👶 <b>น้องพีเจ:</b> ฿${pjTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(ทวงแจง)</i>
+• 👩 <b>พี่แพร:</b> ฿${phraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(หักลบหนี้)</i>
+• 👵 <b>คุณแม่/บ้าน:</b> ฿${momTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+• 🙋‍♂️ <b>ตัวเอง:</b> ฿${myTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+━━━━━━━━━━━━━━━━━━━
+<b>ถูกต้องไหมครับนายท่าน?</b>
+    `.trim();
+  }
+
+  // Single Bank Slip Card
+  const ownerLabel = draftData.owner === 'น้องพีเจ' ? '👶 น้องพีเจ (แจงโอนคืน)' :
+                     draftData.owner === 'พี่แพร' ? '👩 พี่แพร (หักลบหนี้)' :
+                     draftData.owner === 'แม่' ? '👵 คุณแม่' :
+                     draftData.owner === 'บ้าน' ? '🏠 กองกลางบ้าน' : '🙋‍♂️ ตัวเอง';
+
+  return `
+🧾 <b>สลิปใบนี้ (อ้างอิงรูปด้านบน ☝️):</b>
+━━━━━━━━━━━━━━━━━━━
+🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
+👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title}</b>
+💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}👥 <b>เจ้าของรายการ:</b> <b>${ownerLabel}</b>
+💳 <b>บันทึกตัดจาก:</b> กระเป๋า <code>${draftData.pocket}</code>
+━━━━━━━━━━━━━━━━━━━
+<b>นายท่านตรวจสอบแล้ว ถูกต้องไหมครับ?</b>
+  `.trim();
+}
+
+// Generate Main Interactive Keyboard
+function renderMainKeyboard(msgId, draftData) {
+  if (draftData.type === 'SHOPEE_STATEMENT') {
+    return {
+      inline_keyboard: [
+        [
+          { text: '✅ ถูกต้อง บันทึกบิล Shopee นี้', callback_data: `CONFIRM_${msgId}` },
+          { text: '❌ ยกเลิก', callback_data: `CANCEL_${msgId}` }
+        ]
+      ]
+    };
+  }
+
+  return {
+    inline_keyboard: [
+      [
+        { text: `✅ ถูกต้อง บันทึก (${draftData.owner})`, callback_data: `CONFIRM_${msgId}` },
+        { text: '❌ ยกเลิก', callback_data: `CANCEL_${msgId}` }
+      ],
+      [
+        { text: `👤 เปลี่ยนเจ้าของ (ปัจจุบัน: ${draftData.owner})`, callback_data: `OWNER_MENU_${msgId}` }
+      ],
+      [
+        { text: `🏦 เปลี่ยนกระเป๋าเงิน (ปัจจุบัน: ${draftData.pocket})`, callback_data: `POCKET_MENU_${msgId}` }
+      ]
+    ]
+  };
+}
+
+// Generate Owner Picker Keyboard
+function renderOwnerPickerKeyboard(msgId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '👶 น้องพีเจ (แจงโอนคืน)', callback_data: `SET_OWNER_${msgId}_น้องพีเจ` },
+        { text: '👩 พี่แพร (หักลบหนี้)', callback_data: `SET_OWNER_${msgId}_พี่แพร` }
+      ],
+      [
+        { text: '👵 คุณแม่', callback_data: `SET_OWNER_${msgId}_แม่` },
+        { text: '🏠 กองกลางบ้าน', callback_data: `SET_OWNER_${msgId}_บ้าน` }
+      ],
+      [
+        { text: '🙋‍♂️ ตัวเอง', callback_data: `SET_OWNER_${msgId}_ตัวเอง` }
+      ],
+      [
+        { text: '🔙 ย้อนกลับ', callback_data: `BACK_MAIN_${msgId}` }
+      ]
+    ]
+  };
+}
+
+// Generate Pocket Picker Keyboard
+function renderPocketPickerKeyboard(msgId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: 'กระเป๋า 1: หลัก', callback_data: `SET_POCKET_${msgId}_KBANK-MAIN` },
+        { text: 'กระเป๋า 2: กินแซ่บ', callback_data: `SET_POCKET_${msgId}_KBANK-FOOD` }
+      ],
+      [
+        { text: 'กระเป๋า 2.1: เติมบัตร รร.', callback_data: `SET_POCKET_${msgId}_KBANK-SNACK` },
+        { text: 'กระเป๋า 3: บ้าน/แม่', callback_data: `SET_POCKET_${msgId}_KBANK-HOME` }
+      ],
+      [
+        { text: 'เดบิต/สแกน (KBANK-DEBIT)', callback_data: `SET_POCKET_${msgId}_KBANK-DEBIT` },
+        { text: 'กันจ่าย SPayLater', callback_data: `SET_POCKET_${msgId}_KBANK-SPAY` }
+      ],
+      [
+        { text: 'TrueMoney Wallet', callback_data: `SET_POCKET_${msgId}_TRUEMONEY` },
+        { text: 'SCB เงินพิเศษ', callback_data: `SET_POCKET_${msgId}_SCB-EXTRA` }
+      ],
+      [
+        { text: '🔙 ย้อนกลับ', callback_data: `BACK_MAIN_${msgId}` }
+      ]
+    ]
+  };
+}
+
 // Handle Incoming Photo
 async function handlePhotoMessage(msg) {
   const chatId = msg.chat.id;
@@ -232,7 +355,6 @@ async function handlePhotoMessage(msg) {
   const photos = msg.photo;
   if (!photos || photos.length === 0) return;
 
-  // Send status replying directly to this specific photo message
   const waitMsg = await sendMessage(chatId, '⏳ <b>กำลังสแกนสลิปใบนี้...</b>', null, msgId);
 
   try {
@@ -240,7 +362,6 @@ async function handlePhotoMessage(msg) {
     const imageBuffer = await downloadTelegramFile(bestPhoto.file_id);
     const ocrText = await performImageOCR(imageBuffer);
 
-    // Check if it's the Shopee September Bill Statement (12,024.92)
     const isShopeeSept = ocrText.includes('12,024') || ocrText.includes('12024') ||
                          caption.includes('12024') || caption.includes('12,024') ||
                          (ocrText.includes('ช้อปก่อนจ่ายทีหลัง') && ocrText.includes('ผ่อนชำระ'));
@@ -248,7 +369,6 @@ async function handlePhotoMessage(msg) {
     let draftData = null;
 
     if (isShopeeSept) {
-      // 100% Real Shopee September Bill
       draftData = {
         type: 'SHOPEE_STATEMENT',
         msgId,
@@ -286,7 +406,6 @@ async function handlePhotoMessage(msg) {
         ]
       };
     } else {
-      // General Bank Slip or Store Receipt
       const parsed = extractSlipDetails(ocrText, caption);
       draftData = {
         type: 'BANK_SLIP',
@@ -298,56 +417,15 @@ async function handlePhotoMessage(msg) {
         timeStr: parsed.timeStr,
         pocket: parsed.defaultPocket,
         category: parsed.category,
+        owner: parsed.detectedOwner || 'ตัวเอง',
         caption: caption
       };
     }
 
-    // Save draft keyed by message_id
     pendingDrafts.set(msgId, draftData);
 
-    let summaryText = '';
-
-    if (draftData.type === 'SHOPEE_STATEMENT') {
-      const pjTotal = draftData.items.filter(i => i.owner === 'น้องพีเจ').reduce((s, i) => s + i.amount, 0);
-      const phraeTotal = draftData.items.filter(i => i.owner === 'พี่แพร').reduce((s, i) => s + i.amount, 0);
-      const momTotal = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน').reduce((s, i) => s + i.amount, 0);
-      const myTotal = draftData.items.filter(i => i.owner === 'ตัวเอง').reduce((s, i) => s + i.amount, 0);
-
-      summaryText = `
-🧾 <b>บิล Shopee SPayLater (อ้างอิงรูปด้านบน ☝️)</b>
-━━━━━━━━━━━━━━━━━━━
-💰 <b>ยอดรวมบิล:</b> ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-📅 <b>ครบกำหนด:</b> ${draftData.dueDate}
-
-📦 <b>สรุปแยกตามคนจ่าย:</b>
-• 👶 <b>น้องพีเจ:</b> ฿${pjTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(ทวงแจง)</i>
-• 👩 <b>พี่แพร:</b> ฿${phraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(หักลบหนี้)</i>
-• 👵 <b>คุณแม่/บ้าน:</b> ฿${momTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-• 🙋‍♂️ <b>ตัวเอง:</b> ฿${myTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-━━━━━━━━━━━━━━━━━━━
-<b>ถูกต้องไหมครับนายท่าน?</b>
-      `.trim();
-    } else {
-      summaryText = `
-🧾 <b>สลิปใบนี้ (อ้างอิงรูปด้านบน ☝️):</b>
-━━━━━━━━━━━━━━━━━━━
-🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
-👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title}</b>
-💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
-${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}💳 <b>บันทึกตัดจาก:</b> กระเป๋า <code>${draftData.pocket}</code>
-━━━━━━━━━━━━━━━━━━━
-<b>ถูกต้องไหมครับนายท่าน?</b>
-      `.trim();
-    }
-
-    const inlineKeyboard = {
-      inline_keyboard: [
-        [
-          { text: '✅ ถูกต้อง บันทึกสลิปนี้', callback_data: `CONFIRM_${msgId}` },
-          { text: '❌ ยกเลิก', callback_data: `CANCEL_${msgId}` }
-        ]
-      ]
-    };
+    const summaryText = renderDraftSummaryText(draftData);
+    const inlineKeyboard = renderMainKeyboard(msgId, draftData);
 
     if (waitMsg.result?.message_id) {
       await editMessageText(chatId, waitMsg.result.message_id, summaryText, inlineKeyboard);
@@ -367,19 +445,87 @@ async function handleCallbackQuery(cbQuery) {
   const messageId = cbQuery.message.message_id;
   const action = cbQuery.data;
 
-  // Extract target msgId from callback_data (e.g. CONFIRM_12345)
-  const parts = action.split('_');
-  const actionType = parts[0];
-  const targetMsgId = parseInt(parts[1]);
-
-  if (actionType === 'CANCEL') {
+  // 1. Cancel
+  if (action.startsWith('CANCEL_')) {
+    const targetMsgId = parseInt(action.replace('CANCEL_', ''));
     pendingDrafts.delete(targetMsgId);
     await answerCallbackQuery(cbQuery.id, 'ยกเลิกเรียบร้อย');
     await editMessageText(chatId, messageId, '❌ <b>ยกเลิกการบันทึกสลิปใบนี้แล้วครับ</b>');
     return;
   }
 
-  if (actionType === 'CONFIRM') {
+  // 2. Open Owner Menu
+  if (action.startsWith('OWNER_MENU_')) {
+    const targetMsgId = parseInt(action.replace('OWNER_MENU_', ''));
+    await answerCallbackQuery(cbQuery.id, 'เลือกเจ้าของรายการ');
+    const kb = renderOwnerPickerKeyboard(targetMsgId);
+    await editMessageText(chatId, messageId, '👤 <b>กรุณาเลือกเจ้าของรายการสำหรับสลิปนี้:</b>', kb);
+    return;
+  }
+
+  // 3. Set Owner
+  if (action.startsWith('SET_OWNER_')) {
+    const parts = action.split('_'); // SET, OWNER, msgId, ownerName
+    const targetMsgId = parseInt(parts[2]);
+    const chosenOwner = parts[3];
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (draft) {
+      draft.owner = chosenOwner;
+      pendingDrafts.set(targetMsgId, draft);
+    }
+
+    await answerCallbackQuery(cbQuery.id, `เปลี่ยนเจ้าของเป็น ${chosenOwner} แล้ว`);
+    const summaryText = renderDraftSummaryText(draft);
+    const kb = renderMainKeyboard(targetMsgId, draft);
+    await editMessageText(chatId, messageId, summaryText, kb);
+    return;
+  }
+
+  // 4. Open Pocket Menu
+  if (action.startsWith('POCKET_MENU_')) {
+    const targetMsgId = parseInt(action.replace('POCKET_MENU_', ''));
+    await answerCallbackQuery(cbQuery.id, 'เลือกกระเป๋าเงิน');
+    const kb = renderPocketPickerKeyboard(targetMsgId);
+    await editMessageText(chatId, messageId, '🏦 <b>กรุณาเลือกกระเป๋าเงินที่ต้องการตัดยอด:</b>', kb);
+    return;
+  }
+
+  // 5. Set Pocket
+  if (action.startsWith('SET_POCKET_')) {
+    const parts = action.split('_');
+    const targetMsgId = parseInt(parts[2]);
+    const chosenPocket = parts[3];
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (draft) {
+      draft.pocket = chosenPocket;
+      pendingDrafts.set(targetMsgId, draft);
+    }
+
+    await answerCallbackQuery(cbQuery.id, `เปลี่ยนกระเป๋าเป็น ${chosenPocket} แล้ว`);
+    const summaryText = renderDraftSummaryText(draft);
+    const kb = renderMainKeyboard(targetMsgId, draft);
+    await editMessageText(chatId, messageId, summaryText, kb);
+    return;
+  }
+
+  // 6. Back to Main Card
+  if (action.startsWith('BACK_MAIN_')) {
+    const targetMsgId = parseInt(action.replace('BACK_MAIN_', ''));
+    const draft = pendingDrafts.get(targetMsgId);
+    if (draft) {
+      const summaryText = renderDraftSummaryText(draft);
+      const kb = renderMainKeyboard(targetMsgId, draft);
+      await editMessageText(chatId, messageId, summaryText, kb);
+    }
+    await answerCallbackQuery(cbQuery.id);
+    return;
+  }
+
+  // 7. Confirm Save
+  if (action.startsWith('CONFIRM_')) {
+    const targetMsgId = parseInt(action.replace('CONFIRM_', ''));
     const draft = pendingDrafts.get(targetMsgId);
     if (!draft) {
       await answerCallbackQuery(cbQuery.id, 'ไม่พบข้อมูลสลิปนี้ หรืออาจบันทึกไปแล้ว');
@@ -393,7 +539,6 @@ async function handleCallbackQuery(cbQuery) {
       if (!current) throw new Error('ไม่สามารถโหลดข้อมูลจาก Cloud ได้');
 
       if (draft.type === 'SHOPEE_STATEMENT') {
-        // Record Shopee Statement
         const bnplList = [];
         const pjItems = [];
 
@@ -457,11 +602,9 @@ async function handleCallbackQuery(cbQuery) {
         await editMessageText(chatId, messageId, confirmMsg);
 
       } else {
-        // Record Single Slip / Transfer
         const targetPocketId = draft.pocket || 'KBANK-DEBIT';
         const slipAmount = draft.totalAmount || 0;
 
-        // Deduct from account balance if expense
         let updatedAccounts = (current.accounts || []).map(acc => {
           if (acc.id === targetPocketId) {
             const newBal = parseFloat(((acc.balance || 0) - slipAmount).toFixed(2));
@@ -470,7 +613,59 @@ async function handleCallbackQuery(cbQuery) {
           return acc;
         });
 
-        // Add to transactions
+        // Sync family debt if not for oneself
+        let family = current.familySettlements || [];
+        let familyNote = '';
+        if (draft.owner === 'น้องพีเจ') {
+          family = family.map(p => {
+            if (p.id === 'PERSON-JAENG') {
+              const newItem = {
+                id: `SYNC-SLIP-${Date.now()}`,
+                title: draft.title || 'ของใช้น้องพีเจ',
+                amount: slipAmount,
+                type: 'THEY_OWE',
+                status: 'PENDING',
+                note: 'สแกนผ่านสลิป Telegram (แจงโอนคืน)'
+              };
+              return { ...p, items: [...(p.items || []), newItem] };
+            }
+            return p;
+          });
+          familyNote = ' (ซิงค์เข้าแท็บทวงแจงแล้ว)';
+        } else if (draft.owner === 'พี่แพร') {
+          family = family.map(p => {
+            if (p.id === 'PERSON-PHRAE') {
+              const newItem = {
+                id: `SYNC-SLIP-${Date.now()}`,
+                title: draft.title || 'พี่แพรฝากจ่าย',
+                amount: slipAmount,
+                type: 'THEY_OWE',
+                status: 'PENDING',
+                note: 'สแกนผ่านสลิป Telegram (หักลบหนี้)'
+              };
+              return { ...p, items: [...(p.items || []), newItem] };
+            }
+            return p;
+          });
+          familyNote = ' (ซิงค์เข้าแท็บหักลบพี่แพรแล้ว)';
+        } else if (draft.owner === 'แม่') {
+          family = family.map(p => {
+            if (p.id === 'PERSON-MOM') {
+              const newItem = {
+                id: `SYNC-SLIP-${Date.now()}`,
+                title: draft.title || 'จ่ายให้แม่',
+                amount: slipAmount,
+                type: 'THEY_OWE',
+                status: 'PENDING',
+                note: 'สแกนผ่านสลิป Telegram (หักบิลแม่)'
+              };
+              return { ...p, items: [...(p.items || []), newItem] };
+            }
+            return p;
+          });
+          familyNote = ' (ซิงค์เข้าแท็บเคลียร์แม่แล้ว)';
+        }
+
         const newTx = {
           id: `TX-${Date.now()}`,
           date: new Date().toISOString(),
@@ -479,12 +674,14 @@ async function handleCallbackQuery(cbQuery) {
           category: draft.category || 'EXPENSE',
           accountId: targetPocketId,
           type: 'EXPENSE',
-          note: draft.bankRef || 'บันทึกผ่าน Sommai Telegram Bot'
+          owner: draft.owner,
+          note: (draft.bankRef || '') + familyNote
         };
 
         const updatedSOT = {
           ...current,
           accounts: updatedAccounts,
+          familySettlements: family,
           transactions: [newTx, ...(current.transactions || [])],
           updatedAt: new Date().toISOString()
         };
@@ -499,6 +696,7 @@ async function handleCallbackQuery(cbQuery) {
 ━━━━━━━━━━━━━━━━━━━
 🛒 <b>รายการ:</b> ${draft.title}
 💰 <b>ยอดเงิน:</b> -฿${slipAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+👥 <b>เจ้าของรายการ:</b> ${draft.owner}${familyNote}
 🏦 <b>ตัดจากกระเป๋า:</b> ${targetAcc?.name || targetPocketId}
 💵 <b>ยอดคงเหลือในกระเป๋า:</b> ฿${(targetAcc?.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
 ☁️ <b>Cloud Status:</b> บันทึกลง Supabase สำเร็จ
@@ -525,8 +723,10 @@ async function handleTextMessage(msg) {
 นายท่านสามารถใช้งานผมได้ง่ายๆ ดังนี้ครับ:
 
 📸 <b>ส่งรูปภาพสลิป หรือ ใบแจ้งหนี้ Shopee (ส่งหลายรูปพร้อมกันได้)</b>
-➔ สมหมายจะตอบกลับตรงใต้รูปแต่ละใบ พร้อมแสดงผู้รับโอนและยอดเงิน
-➔ มีปุ่มให้กด <b>[ ✅ ถูกต้อง บันทึกสลิปนี้ ]</b> แยกเป็นใบๆ
+➔ สมหมายจะตอบกลับตรงใต้รูปแต่ละใบ
+➔ มีปุ่ม <b>[ 👤 เปลี่ยนเจ้าของ ]</b> ให้กดสลับคนจ่ายได้ใน 1 คลิก (น้องพีเจ / พี่แพร / แม่ / ตัวเอง)
+➔ มีปุ่ม <b>[ 🏦 เปลี่ยนกระเป๋าเงิน ]</b> สำหรับเลือกกระเป๋าตัดยอด
+➔ มีปุ่ม <b>[ ✅ ถูกต้อง บันทึกสลิปนี้ ]</b> ยืนยันทีละใบ
 
 📊 <b>พิมพ์ /status หรือ /summary</b>
 ➔ เพื่อดูยอดเงินคงเหลือทุกกระเป๋าและความมั่งคั่งสุทธิล่าสุด
@@ -564,7 +764,7 @@ async function handleTextMessage(msg) {
     return await sendMessage(chatId, statusMsg);
   }
 
-  await sendMessage(chatId, '💡 นายท่านสามารถ <b>ส่งรูปภาพสลิป/บิล</b> มาได้เลยครับ (ส่งพร้อมกันหลายใบได้เลย) หรือพิมพ์ /status เพื่อดูยอดเงิน');
+  await sendMessage(chatId, '💡 นายท่านสามารถ <b>ส่งรูปภาพสลิป/บิล</b> มาได้เลยครับ หรือพิมพ์ /status เพื่อดูยอดเงิน');
 }
 
 // Telegram Long Polling Loop
@@ -583,7 +783,6 @@ async function pollUpdates() {
 
         if (update.message) {
           if (update.message.photo) {
-            // Process photo asynchronously without blocking next photos
             handlePhotoMessage(update.message).catch(e => console.error('Photo error:', e));
           } else if (update.message.text) {
             handleTextMessage(update.message).catch(e => console.error('Text error:', e));
@@ -602,6 +801,6 @@ async function pollUpdates() {
 }
 
 // Start bot
-console.log('🤖 Sommai Telegram Bot v2.0 is starting...');
+console.log('🤖 Sommai Telegram Bot v2.1 is starting...');
 pollUpdates();
-console.log('✅ Sommai Telegram Bot v2.0 (@sommai_money_bot) is LIVE with Multi-Bill Threading support!');
+console.log('✅ Sommai Telegram Bot v2.1 (@sommai_money_bot) is LIVE with Interactive Owner & Pocket Pickers!');
