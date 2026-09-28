@@ -1,6 +1,6 @@
 /**
- * Sommai Telegram Bot Service v2.1
- * Multi-Bill Threading + Interactive Owner & Pocket Pickers
+ * Sommai Telegram Bot Service v2.2
+ * Multi-Bill Threading + Interactive Owner/Pocket Pickers + Smart Dedup Guard
  */
 import { createClient } from '@supabase/supabase-js';
 import { createWorker } from 'tesseract.js';
@@ -192,18 +192,23 @@ function extractSlipDetails(rawText, caption = '') {
     defaultPocket = 'KBANK-HOME';
   }
 
-  // Detect owner from caption
   let detectedOwner = 'ตัวเอง';
   if (/พีเจ|saker|merries|ลูก/i.test(caption)) detectedOwner = 'น้องพีเจ';
   else if (/แพร|sony|หูฟัง/i.test(caption)) detectedOwner = 'พี่แพร';
   else if (/แม่|ประกันสังคม/i.test(caption)) detectedOwner = 'แม่';
   else if (/บ้าน/i.test(caption)) detectedOwner = 'บ้าน';
 
+  // Generate Unique Dedup Key
+  const dedupKey = bankRef 
+    ? `REF_${bankRef.replace(/[^A-Za-z0-9]/g, '')}`
+    : `SLIP_${Math.round(detectedAmount * 100)}_${recipient.replace(/\s+/g, '').slice(0, 10)}_${timeStr.replace(/\s+/g, '')}`;
+
   return {
     bankName,
     detectedAmount,
     recipient,
-    bankRef: bankRef ? `Ref: ${bankRef.slice(-8)}` : '',
+    bankRef: bankRef ? `Ref: ${bankRef}` : '',
+    dedupKey,
     timeStr,
     defaultPocket,
     category,
@@ -226,13 +231,56 @@ async function performImageOCR(buffer) {
   }
 }
 
+// Check if draft is duplicate in SOT
+function checkIsDuplicate(draftData, sot) {
+  if (!sot) return false;
+
+  const scannedHashes = sot.scannedSlipHashes || [];
+  const transactions = sot.transactions || [];
+
+  if (draftData.type === 'SHOPEE_STATEMENT') {
+    // Check if September Shopee statement already recorded
+    const hasSeptBNPL = (sot.bnplItems || []).some(b => b.id?.startsWith('BNPL-2026-09-') || b.note?.includes('Shopee SPayLater ก.ย. 2026'));
+    if (hasSeptBNPL && sot.spayStatementCycle?.includes('ก.ย. 2026')) {
+      return true;
+    }
+  } else {
+    // Bank Slip duplicate check
+    if (draftData.dedupKey && scannedHashes.includes(draftData.dedupKey)) {
+      return true;
+    }
+    if (draftData.bankRef && transactions.some(t => t.note?.includes(draftData.bankRef) || t.bankRef === draftData.bankRef)) {
+      return true;
+    }
+    // Amount + Time match
+    if (draftData.totalAmount > 0 && draftData.timeStr) {
+      const match = transactions.some(t => t.amount === draftData.totalAmount && t.note?.includes(draftData.timeStr));
+      if (match) return true;
+    }
+  }
+
+  return false;
+}
+
 // Generate Summary Text for Draft
-function renderDraftSummaryText(draftData) {
+function renderDraftSummaryText(draftData, isDuplicate = false) {
   if (draftData.type === 'SHOPEE_STATEMENT') {
     const pjTotal = draftData.items.filter(i => i.owner === 'น้องพีเจ').reduce((s, i) => s + i.amount, 0);
     const phraeTotal = draftData.items.filter(i => i.owner === 'พี่แพร').reduce((s, i) => s + i.amount, 0);
     const momTotal = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน').reduce((s, i) => s + i.amount, 0);
     const myTotal = draftData.items.filter(i => i.owner === 'ตัวเอง').reduce((s, i) => s + i.amount, 0);
+
+    if (isDuplicate) {
+      return `
+⚠️ <b>แจ้งเตือน: บิล Shopee รอบนี้ถูกบันทึกไปแล้ว! (บิลซ้ำ)</b>
+━━━━━━━━━━━━━━━━━━━
+🛒 <b>รายการ:</b> ${draftData.title}
+💰 <b>ยอดรวมบิล:</b> ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+📅 <b>ครบกำหนด:</b> ${draftData.dueDate}
+━━━━━━━━━━━━━━━━━━━
+<i>ระบบตรวจพบว่าบิล Shopee ยอด ฿12,024.92 รอบ ก.ย. 2026 มีอยู่ในระบบแล้ว เพื่อป้องกันยอดหนี้เบิ้ลซ้ำ สมหมายจึงแจ้งเตือนไว้ครับ</i>
+      `.trim();
+    }
 
     return `
 🧾 <b>บิล Shopee SPayLater (อ้างอิงรูปด้านบน ☝️)</b>
@@ -256,6 +304,18 @@ function renderDraftSummaryText(draftData) {
                      draftData.owner === 'แม่' ? '👵 คุณแม่' :
                      draftData.owner === 'บ้าน' ? '🏠 กองกลางบ้าน' : '🙋‍♂️ ตัวเอง';
 
+  if (isDuplicate) {
+    return `
+⚠️ <b>แจ้งเตือน: สลิปนี้มีบันทึกในระบบแล้ว! (สลิปซ้ำ)</b>
+━━━━━━━━━━━━━━━━━━━
+🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
+👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title}</b>
+💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}━━━━━━━━━━━━━━━━━━━
+<i>ระบบตรวจพบเลขอ้างอิงหรือยอดเงินซ้ำในประวัติ เพื่อป้องกันการตัดเงินซ้ำซ้อน สมหมายจึงระงับไว้ก่อนครับ</i>
+    `.trim();
+  }
+
   return `
 🧾 <b>สลิปใบนี้ (อ้างอิงรูปด้านบน ☝️):</b>
 ━━━━━━━━━━━━━━━━━━━
@@ -269,8 +329,21 @@ ${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n
   `.trim();
 }
 
-// Generate Main Interactive Keyboard
-function renderMainKeyboard(msgId, draftData) {
+// Generate Main Keyboard
+function renderMainKeyboard(msgId, draftData, isDuplicate = false) {
+  if (isDuplicate) {
+    return {
+      inline_keyboard: [
+        [
+          { text: '❌ ยกเลิก (สลิปซ้ำ ไม่บันทึก)', callback_data: `CANCEL_${msgId}` }
+        ],
+        [
+          { text: '⚠️ บังคับบันทึกซ้ำ (กรณีโอน 2 ครั้งจริง)', callback_data: `FORCE_CONFIRM_${msgId}` }
+        ]
+      ]
+    };
+  }
+
   if (draftData.type === 'SHOPEE_STATEMENT') {
     return {
       inline_keyboard: [
@@ -362,6 +435,9 @@ async function handlePhotoMessage(msg) {
     const imageBuffer = await downloadTelegramFile(bestPhoto.file_id);
     const ocrText = await performImageOCR(imageBuffer);
 
+    // Fetch latest SOT to check duplicates
+    const currentSOT = await getCurrentSOT();
+
     const isShopeeSept = ocrText.includes('12,024') || ocrText.includes('12024') ||
                          caption.includes('12024') || caption.includes('12,024') ||
                          (ocrText.includes('ช้อปก่อนจ่ายทีหลัง') && ocrText.includes('ผ่อนชำระ'));
@@ -375,6 +451,7 @@ async function handlePhotoMessage(msg) {
         title: 'ใบแจ้งยอด Shopee SPayLater (รอบ ก.ย. 2026)',
         totalAmount: 12024.92,
         dueDate: '10 ต.ค. 2026',
+        dedupKey: 'SHOPEE_2026_09_12024.92',
         items: [
           { title: 'สเปรย์แอลกอฮอล์ Saker (12 ขวด)', amount: 935.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
           { title: 'ผ้าอ้อม Merries Tape Size M', amount: 945.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
@@ -414,6 +491,7 @@ async function handlePhotoMessage(msg) {
         bankName: parsed.bankName,
         totalAmount: parsed.detectedAmount,
         bankRef: parsed.bankRef,
+        dedupKey: parsed.dedupKey,
         timeStr: parsed.timeStr,
         pocket: parsed.defaultPocket,
         category: parsed.category,
@@ -424,8 +502,12 @@ async function handlePhotoMessage(msg) {
 
     pendingDrafts.set(msgId, draftData);
 
-    const summaryText = renderDraftSummaryText(draftData);
-    const inlineKeyboard = renderMainKeyboard(msgId, draftData);
+    // Dedup Check
+    const isDuplicate = checkIsDuplicate(draftData, currentSOT);
+    draftData.isDuplicate = isDuplicate;
+
+    const summaryText = renderDraftSummaryText(draftData, isDuplicate);
+    const inlineKeyboard = renderMainKeyboard(msgId, draftData, isDuplicate);
 
     if (waitMsg.result?.message_id) {
       await editMessageText(chatId, waitMsg.result.message_id, summaryText, inlineKeyboard);
@@ -465,7 +547,7 @@ async function handleCallbackQuery(cbQuery) {
 
   // 3. Set Owner
   if (action.startsWith('SET_OWNER_')) {
-    const parts = action.split('_'); // SET, OWNER, msgId, ownerName
+    const parts = action.split('_');
     const targetMsgId = parseInt(parts[2]);
     const chosenOwner = parts[3];
 
@@ -476,8 +558,8 @@ async function handleCallbackQuery(cbQuery) {
     }
 
     await answerCallbackQuery(cbQuery.id, `เปลี่ยนเจ้าของเป็น ${chosenOwner} แล้ว`);
-    const summaryText = renderDraftSummaryText(draft);
-    const kb = renderMainKeyboard(targetMsgId, draft);
+    const summaryText = renderDraftSummaryText(draft, draft?.isDuplicate);
+    const kb = renderMainKeyboard(targetMsgId, draft, draft?.isDuplicate);
     await editMessageText(chatId, messageId, summaryText, kb);
     return;
   }
@@ -504,8 +586,8 @@ async function handleCallbackQuery(cbQuery) {
     }
 
     await answerCallbackQuery(cbQuery.id, `เปลี่ยนกระเป๋าเป็น ${chosenPocket} แล้ว`);
-    const summaryText = renderDraftSummaryText(draft);
-    const kb = renderMainKeyboard(targetMsgId, draft);
+    const summaryText = renderDraftSummaryText(draft, draft?.isDuplicate);
+    const kb = renderMainKeyboard(targetMsgId, draft, draft?.isDuplicate);
     await editMessageText(chatId, messageId, summaryText, kb);
     return;
   }
@@ -515,17 +597,17 @@ async function handleCallbackQuery(cbQuery) {
     const targetMsgId = parseInt(action.replace('BACK_MAIN_', ''));
     const draft = pendingDrafts.get(targetMsgId);
     if (draft) {
-      const summaryText = renderDraftSummaryText(draft);
-      const kb = renderMainKeyboard(targetMsgId, draft);
+      const summaryText = renderDraftSummaryText(draft, draft?.isDuplicate);
+      const kb = renderMainKeyboard(targetMsgId, draft, draft?.isDuplicate);
       await editMessageText(chatId, messageId, summaryText, kb);
     }
     await answerCallbackQuery(cbQuery.id);
     return;
   }
 
-  // 7. Confirm Save
-  if (action.startsWith('CONFIRM_')) {
-    const targetMsgId = parseInt(action.replace('CONFIRM_', ''));
+  // 7. Confirm Save (or Force Confirm)
+  if (action.startsWith('CONFIRM_') || action.startsWith('FORCE_CONFIRM_')) {
+    const targetMsgId = parseInt(action.replace('FORCE_CONFIRM_', '').replace('CONFIRM_', ''));
     const draft = pendingDrafts.get(targetMsgId);
     if (!draft) {
       await answerCallbackQuery(cbQuery.id, 'ไม่พบข้อมูลสลิปนี้ หรืออาจบันทึกไปแล้ว');
@@ -537,6 +619,12 @@ async function handleCallbackQuery(cbQuery) {
     try {
       const current = await getCurrentSOT();
       if (!current) throw new Error('ไม่สามารถโหลดข้อมูลจาก Cloud ได้');
+
+      // Append hash to scannedSlipHashes
+      const updatedHashes = [...(current.scannedSlipHashes || [])];
+      if (draft.dedupKey && !updatedHashes.includes(draft.dedupKey)) {
+        updatedHashes.push(draft.dedupKey);
+      }
 
       if (draft.type === 'SHOPEE_STATEMENT') {
         const bnplList = [];
@@ -583,6 +671,7 @@ async function handleCallbackQuery(cbQuery) {
           ...current,
           bnplItems: bnplList,
           familySettlements: family,
+          scannedSlipHashes: updatedHashes,
           spayStatementStatus: 'UNPAID',
           spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค. 2026)',
           updatedAt: new Date().toISOString()
@@ -613,7 +702,6 @@ async function handleCallbackQuery(cbQuery) {
           return acc;
         });
 
-        // Sync family debt if not for oneself
         let family = current.familySettlements || [];
         let familyNote = '';
         if (draft.owner === 'น้องพีเจ') {
@@ -675,6 +763,7 @@ async function handleCallbackQuery(cbQuery) {
           accountId: targetPocketId,
           type: 'EXPENSE',
           owner: draft.owner,
+          bankRef: draft.dedupKey,
           note: (draft.bankRef || '') + familyNote
         };
 
@@ -682,6 +771,7 @@ async function handleCallbackQuery(cbQuery) {
           ...current,
           accounts: updatedAccounts,
           familySettlements: family,
+          scannedSlipHashes: updatedHashes,
           transactions: [newTx, ...(current.transactions || [])],
           updatedAt: new Date().toISOString()
         };
@@ -718,13 +808,13 @@ async function handleTextMessage(msg) {
 
   if (text === '/start' || text === '/help') {
     const welcome = `
-💎 <b>สวัสดีครับนายท่าน! ผมคือ "สมหมาย" เลขาการเงินส่วนตัว</b>
+💎 <b>สวัสดีครับนายท่าน! ผมคือ "สมหมาย" เลขาการเงินส่วนตัว (v2.2)</b>
 ━━━━━━━━━━━━━━━━━━━━
 นายท่านสามารถใช้งานผมได้ง่ายๆ ดังนี้ครับ:
 
-📸 <b>ส่งรูปภาพสลิป หรือ ใบแจ้งหนี้ Shopee (ส่งหลายรูปพร้อมกันได้)</b>
-➔ สมหมายจะตอบกลับตรงใต้รูปแต่ละใบ
-➔ มีปุ่ม <b>[ 👤 เปลี่ยนเจ้าของ ]</b> ให้กดสลับคนจ่ายได้ใน 1 คลิก (น้องพีเจ / พี่แพร / แม่ / ตัวเอง)
+📸 <b>ส่งรูปภาพสลิป หรือ ใบแจ้งหนี้ Shopee</b>
+➔ ตรวจจับสลิปซ้ำอัตโนมัติ (Dedup Guard) เตือนทันทีถ้าเคยมีในระบบ
+➔ มีปุ่ม <b>[ 👤 เปลี่ยนเจ้าของ ]</b> ให้กดสลับคนจ่าย (น้องพีเจ / พี่แพร / แม่ / ตัวเอง)
 ➔ มีปุ่ม <b>[ 🏦 เปลี่ยนกระเป๋าเงิน ]</b> สำหรับเลือกกระเป๋าตัดยอด
 ➔ มีปุ่ม <b>[ ✅ ถูกต้อง บันทึกสลิปนี้ ]</b> ยืนยันทีละใบ
 
@@ -801,6 +891,6 @@ async function pollUpdates() {
 }
 
 // Start bot
-console.log('🤖 Sommai Telegram Bot v2.1 is starting...');
+console.log('🤖 Sommai Telegram Bot v2.2 (Dedup Guard) is starting...');
 pollUpdates();
-console.log('✅ Sommai Telegram Bot v2.1 (@sommai_money_bot) is LIVE with Interactive Owner & Pocket Pickers!');
+console.log('✅ Sommai Telegram Bot v2.2 (@sommai_money_bot) is LIVE with Dedup Guard & Multi-Bill Threading!');
