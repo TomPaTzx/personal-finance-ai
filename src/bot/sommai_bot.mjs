@@ -1,6 +1,6 @@
 /**
- * Sommai Telegram Bot Service v2.4 (Ultimate Owner Control)
- * Multi-Bill Threading + Prominent Top-Row Owner Editing Menus + Text Reply Matching
+ * Sommai Telegram Bot Service v2.5 (Item-by-Item Breakdown & Granular Assignment)
+ * Multi-Bill Threading + Line-by-Line Item Breakdown + Interactive Item-by-Item Selector
  */
 import { createClient } from '@supabase/supabase-js';
 import { createWorker } from 'tesseract.js';
@@ -237,32 +237,55 @@ async function performImageOCR(buffer) {
   }
 }
 
-// Render Summary Text
+// Render Summary Text with Line-by-Line Item Breakdown
 function renderDraftSummaryText(draftData) {
   if (draftData.type === 'SHOPEE_STATEMENT') {
-    const pjItems = draftData.items.filter(i => i.owner === 'น้องพีเจ');
-    const phraeItems = draftData.items.filter(i => i.owner === 'พี่แพร');
-    const momItems = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน');
-    const myItems = draftData.items.filter(i => i.owner === 'ตัวเอง');
+    const ownersOrder = ['น้องพีเจ', 'พี่แพร', 'แม่', 'บ้าน', 'ตัวเอง'];
+    const allOwners = Array.from(new Set(draftData.items.map(i => i.owner || 'ตัวเอง')));
+    allOwners.sort((a, b) => {
+      const idxA = ownersOrder.indexOf(a);
+      const idxB = ownersOrder.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
 
-    const pjTotal = pjItems.reduce((s, i) => s + i.amount, 0);
-    const phraeTotal = phraeItems.reduce((s, i) => s + i.amount, 0);
-    const momTotal = momItems.reduce((s, i) => s + i.amount, 0);
-    const myTotal = myItems.reduce((s, i) => s + i.amount, 0);
+    let sectionsText = '';
+    let globalNum = 1;
+
+    for (const owner of allOwners) {
+      const items = draftData.items.filter(i => (i.owner || 'ตัวเอง') === owner);
+      if (items.length === 0) continue;
+      const total = items.reduce((s, i) => s + i.amount, 0);
+
+      const ownerIcon = owner === 'น้องพีเจ' ? '👶' :
+                        owner === 'พี่แพร' ? '👩' :
+                        owner === 'แม่' ? '👵' :
+                        owner === 'บ้าน' ? '🏠' : '🙋‍♂️';
+
+      const ownerTag = owner === 'น้องพีเจ' ? ' <i>(ทวงแจง)</i>' :
+                       owner === 'พี่แพร' ? ' <i>(หักลบหนี้)</i>' :
+                       owner === 'แม่' ? ' <i>(หักบิลแม่)</i>' :
+                       owner === 'บ้าน' ? ' <i>(กองกลาง)</i>' : '';
+
+      const itemsListStr = items.map(item => {
+        const num = globalNum++;
+        const instBadge = item.isInstallment ? ' <code>[ผ่อน]</code>' : '';
+        return `  <b>${num}.</b> ${item.title}: <b>฿${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>${instBadge}`;
+      }).join('\n');
+
+      sectionsText += `\n${ownerIcon} <b>${owner}${ownerTag}</b> [${items.length} รายการ] ➔ <b>รวม ฿${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>\n${itemsListStr}\n`;
+    }
 
     return `
-🧾 <b>บิล Shopee SPayLater (อ้างอิงรูปด้านบน ☝️)</b>
-━━━━━━━━━━━━━━━━━━━
-💰 <b>ยอดรวมบิล:</b> ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+🧾 <b>บิล Shopee SPayLater (ยอดรวม ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })})</b>
 📅 <b>ครบกำหนด:</b> ${draftData.dueDate}
-
-📦 <b>สรุปยอดแยกตามคนซื้อ/คนจ่าย:</b>
-• 👶 <b>น้องพีเจ (${pjItems.length} รายการ):</b> ฿${pjTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(ทวงแจง)</i>
-• 👩 <b>พี่แพร (${phraeItems.length} รายการ):</b> ฿${phraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(หักลบหนี้)</i>
-• 👵 <b>คุณแม่/บ้าน (${momItems.length} รายการ):</b> ฿${momTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-• 🙋‍♂️ <b>ตัวเอง (${myItems.length} รายการ):</b> ฿${myTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
 ━━━━━━━━━━━━━━━━━━━
-💡 <i>กดปุ่ม <b>"👤 แก้ไขคนซื้อ"</b> ด้านล่างเพื่อสลับคนจ่ายได้ทันที หรือพิมพ์ตอบกลับ เช่น "ของแจง"</i>
+📋 <b>จำแนกรายการละเอียด (อันไหนของใคร):</b>
+${sectionsText.trim()}
+━━━━━━━━━━━━━━━━━━━
+💡 <i>กดปุ่ม <b>"👤 ✏️ แก้ไขคนซื้อ"</b> หรือพิมพ์ เช่น "ยาสีฟัน ของแจง" หรือ "1 ของตัวเอง"</i>
     `.trim();
   }
 
@@ -350,6 +373,9 @@ function renderShopeeOwnerMenuKeyboard(msgId) {
   return {
     inline_keyboard: [
       [
+        { text: '🔍 ✏️ เลือกแก้ทีละรายการ (Item-by-Item)', callback_data: `SHOPEE_PAGE_${msgId}_0` }
+      ],
+      [
         { text: '👶 สลับของใช้เด็ก (Saker+ผ้าอ้อม) ➔ น้องพีเจ (แจง)', callback_data: `SET_SHOPEE_GRP_${msgId}_PJ` }
       ],
       [
@@ -370,6 +396,78 @@ function renderShopeeOwnerMenuKeyboard(msgId) {
         { text: '🔙 ↩️ ย้อนกลับไปหน้าสรุปบิล', callback_data: `BACK_MAIN_${msgId}` }
       ]
     ]
+  };
+}
+
+// Shopee Item Picker Keyboard (6 items per page)
+function renderShopeeItemPickerKeyboard(msgId, draftData, page = 0) {
+  const pageSize = 6;
+  const totalItems = (draftData.items || []).length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  const startIdx = safePage * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, totalItems);
+
+  const rows = [];
+
+  for (let i = startIdx; i < endIdx; i++) {
+    const item = draftData.items[i];
+    const ownerIcon = item.owner === 'น้องพีเจ' ? '👶' :
+                      item.owner === 'พี่แพร' ? '👩' :
+                      item.owner === 'แม่' ? '👵' :
+                      item.owner === 'บ้าน' ? '🏠' : '🙋‍♂️';
+
+    const shortTitle = item.title.length > 20 ? item.title.slice(0, 18) + '..' : item.title;
+    const btnText = `${i + 1}. ${shortTitle} (฿${item.amount}) ${ownerIcon}`;
+    rows.push([
+      { text: btnText, callback_data: `SHOPEE_PICK_ITEM_${msgId}_${i}_${safePage}` }
+    ]);
+  }
+
+  // Pagination row
+  const navRow = [];
+  if (safePage > 0) {
+    navRow.push({ text: '⬅️ ก่อนหน้า', callback_data: `SHOPEE_PAGE_${msgId}_${safePage - 1}` });
+  }
+  navRow.push({ text: `📄 ${safePage + 1}/${totalPages}`, callback_data: `NOOP` });
+  if (safePage < totalPages - 1) {
+    navRow.push({ text: 'ถัดไป ➡️', callback_data: `SHOPEE_PAGE_${msgId}_${safePage + 1}` });
+  }
+  rows.push(navRow);
+
+  // Return to owner menu or main summary
+  rows.push([
+    { text: '🔙 ↩️ ย้อนกลับไปหน้าสรุปบิล', callback_data: `BACK_MAIN_${msgId}` }
+  ]);
+
+  return { inline_keyboard: rows };
+}
+
+// Single Item Owner Picker Submenu
+function renderSingleItemOwnerPicker(msgId, draftData, itemIdx, page) {
+  const item = draftData.items[itemIdx];
+  const curOwner = item.owner || 'ตัวเอง';
+
+  return {
+    text: `👤 <b>เลือกคนซื้อสำหรับรายการที่ ${itemIdx + 1}:</b>\n\n📦 <b>"${item.title}"</b>\n💰 <b>ราคา:</b> ฿${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}\n👥 <b>เจ้าของปัจจุบัน:</b> <b>${curOwner}</b>\n\n<i>กดเลือกเจ้าของใหม่ด้านล่างได้เลยครับ:</i>`,
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '👶 น้องพีเจ (แจง)', callback_data: `SET_ITEM_OWNER_${msgId}_${itemIdx}_น้องพีเจ_${page}` },
+          { text: '👩 พี่แพร', callback_data: `SET_ITEM_OWNER_${msgId}_${itemIdx}_พี่แพร_${page}` }
+        ],
+        [
+          { text: '👵 คุณแม่', callback_data: `SET_ITEM_OWNER_${msgId}_${itemIdx}_แม่_${page}` },
+          { text: '🏠 กองกลางบ้าน', callback_data: `SET_ITEM_OWNER_${msgId}_${itemIdx}_บ้าน_${page}` }
+        ],
+        [
+          { text: '🙋‍♂️ ตัวเอง', callback_data: `SET_ITEM_OWNER_${msgId}_${itemIdx}_ตัวเอง_${page}` }
+        ],
+        [
+          { text: '🔙 ↩️ ย้อนกลับไปรายการสินค้า', callback_data: `SHOPEE_PAGE_${msgId}_${page}` }
+        ]
+      ]
+    }
   };
 }
 
@@ -506,6 +604,11 @@ async function handleCallbackQuery(cbQuery) {
 
   console.log(`🔘 Button clicked: ${action} by user ${cbQuery.from?.first_name}`);
 
+  if (action === 'NOOP') {
+    await answerCallbackQuery(cbQuery.id);
+    return;
+  }
+
   // Cancel
   if (action.startsWith('CANCEL_')) {
     const targetMsgId = parseInt(action.replace('CANCEL_', ''));
@@ -548,7 +651,64 @@ async function handleCallbackQuery(cbQuery) {
     const targetMsgId = parseInt(action.replace('SHOPEE_OWNER_MENU_', ''));
     await answerCallbackQuery(cbQuery.id, 'เมนูแก้ไขคนซื้อ Shopee');
     const kb = renderShopeeOwnerMenuKeyboard(targetMsgId);
-    await editMessageText(chatId, messageId, '👤 <b>เมนูสลับคนซื้อในบิล Shopee:</b>\nเลือกกลุ่มสินค้า หรือเปลี่ยนทั้งบิลได้ทันทีครับ:', kb);
+    await editMessageText(chatId, messageId, '👤 <b>เมนูสลับคนซื้อในบิล Shopee:</b>\nเลือกแก้ไขทีละรายการ หรือสลับกลุ่มสินค้าได้ทันที:', kb);
+    return;
+  }
+
+  // Open Shopee Item Picker Page (Item-by-Item)
+  if (action.startsWith('SHOPEE_PAGE_')) {
+    const parts = action.split('_');
+    const targetMsgId = parseInt(parts[2]);
+    const page = parseInt(parts[3] || '0');
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (!draft) {
+      await answerCallbackQuery(cbQuery.id, 'ไม่พบข้อมูลบิลนี้');
+      return;
+    }
+
+    await answerCallbackQuery(cbQuery.id, `หน้า ${page + 1}`);
+    const kb = renderShopeeItemPickerKeyboard(targetMsgId, draft, page);
+    await editMessageText(chatId, messageId, '📋 <b>กดเลือกรายการที่ต้องการเปลี่ยนคนซื้อ:</b>', kb);
+    return;
+  }
+
+  // Pick Specific Item to Change Owner
+  if (action.startsWith('SHOPEE_PICK_ITEM_')) {
+    const parts = action.split('_');
+    const targetMsgId = parseInt(parts[3]);
+    const itemIdx = parseInt(parts[4]);
+    const page = parseInt(parts[5] || '0');
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (!draft || !draft.items[itemIdx]) {
+      await answerCallbackQuery(cbQuery.id, 'ไม่พบรายการนี้');
+      return;
+    }
+
+    await answerCallbackQuery(cbQuery.id, 'เลือกคนซื้อ');
+    const dialog = renderSingleItemOwnerPicker(targetMsgId, draft, itemIdx, page);
+    await editMessageText(chatId, messageId, dialog.text, dialog.reply_markup);
+    return;
+  }
+
+  // Set Specific Item Owner
+  if (action.startsWith('SET_ITEM_OWNER_')) {
+    const parts = action.split('_');
+    const targetMsgId = parseInt(parts[3]);
+    const itemIdx = parseInt(parts[4]);
+    const chosenOwner = parts[5];
+    const page = parseInt(parts[6] || '0');
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (draft && draft.items[itemIdx]) {
+      draft.items[itemIdx].owner = chosenOwner;
+      pendingDrafts.set(targetMsgId, draft);
+    }
+
+    await answerCallbackQuery(cbQuery.id, `เปลี่ยนเป็นของ ${chosenOwner} แล้ว!`);
+    const kb = renderShopeeItemPickerKeyboard(targetMsgId, draft, page);
+    await editMessageText(chatId, messageId, `✅ <b>เปลี่ยนรายการ "${draft.items[itemIdx].title}" เป็นของ "${chosenOwner}" เรียบร้อย!</b>\n\nเลือกรายการอื่นต่อได้เลยครับ:`, kb);
     return;
   }
 
@@ -839,15 +999,15 @@ async function handleTextMessage(msg) {
 
   if (text === '/start' || text === '/help') {
     const welcome = `
-💎 <b>สวัสดีครับนายท่าน! ผมคือ "สมหมาย" เลขาการเงินส่วนตัว (v2.4)</b>
+💎 <b>สวัสดีครับนายท่าน! ผมคือ "สมหมาย" เลขาการเงินส่วนตัว (v2.5)</b>
 ━━━━━━━━━━━━━━━━━━━━
 นายท่านสามารถใช้งานผมได้ง่ายๆ ดังนี้ครับ:
 
 📸 <b>ส่งรูปภาพสลิป หรือ ใบแจ้งหนี้ Shopee</b>
-➔ สมหมายจะตอบกลับตรงใต้รูป พร้อมแยกคนซื้อให้ทันที
-➔ มีปุ่ม <b>[ 👤 ✏️ แก้ไขคนซื้อ ]</b> เด่นชัดที่แถวบนสุด ให้กดสลับคนซื้อได้ทันที
+➔ สมหมายจะจำแนกรายการละเอียดทุกชิ้น <b>(ระบุชัดว่าอันไหนของใคร)</b>
+➔ มีปุ่ม <b>[ 👤 ✏️ แก้ไขคนซื้อ ]</b> ให้กดสลับคนซื้อได้ทั้งแบบเลือกทีละชิ้น หรือทั้งกลุ่ม
 ➔ มีปุ่ม <b>[ 🏦 เปลี่ยนกระเป๋าเงิน ]</b> สำหรับเลือกกระเป๋าตัดยอด
-➔ หรือพิมพ์ตอบกลับในแชทได้ทันที เช่น <i>"ของแจง"</i> หรือ <i>"ของพี่แพร"</i>
+➔ หรือพิมพ์ตอบกลับในแชทได้ทันที เช่น <i>"ยาสีฟัน ของแจง"</i> หรือ <i>"1 ของตัวเอง"</i>
 
 📊 <b>พิมพ์ /status หรือ /summary</b>
 ➔ เพื่อดูยอดเงินคงเหลือทุกกระเป๋าและความมั่งคั่งสุทธิล่าสุด
@@ -888,6 +1048,35 @@ async function handleTextMessage(msg) {
   // Check if text is changing owner for latest pending draft
   const latestDraft = lastDraftByChat.get(chatId);
   if (latestDraft) {
+    // 1. Check if user specified a specific item in Shopee statement (e.g. "ยาสีฟัน ของแจง", "1 ของแพร", "saker ของตัวเอง")
+    if (latestDraft.type === 'SHOPEE_STATEMENT' && latestDraft.items) {
+      for (let i = 0; i < latestDraft.items.length; i++) {
+        const it = latestDraft.items[i];
+        const words = it.title.toLowerCase().split(/[\s\-\[\]\(\)]+/).filter(w => w.length > 2);
+        const indexStr = `${i + 1}`;
+        const itemMentioned = text.startsWith(indexStr + ' ') || text.includes('รายการที่ ' + indexStr) || text.includes('อันที่ ' + indexStr) ||
+                              words.some(w => text.toLowerCase().includes(w));
+
+        if (itemMentioned) {
+          let targetOwner = null;
+          if (/พีเจ|แจง|ลูก/i.test(text)) targetOwner = 'น้องพีเจ';
+          else if (/แพร/i.test(text)) targetOwner = 'พี่แพร';
+          else if (/แม่/i.test(text)) targetOwner = 'แม่';
+          else if (/บ้าน|กองกลาง/i.test(text)) targetOwner = 'บ้าน';
+          else if (/ตัวเอง|เรา|ฉัน|ผม/i.test(text)) targetOwner = 'ตัวเอง';
+
+          if (targetOwner) {
+            it.owner = targetOwner;
+            pendingDrafts.set(latestDraft.msgId, latestDraft);
+            const summaryText = renderDraftSummaryText(latestDraft);
+            const kb = renderMainKeyboard(latestDraft.msgId, latestDraft);
+            return await sendMessage(chatId, `✅ <b>เปลี่ยนรายการ "${it.title}" (฿${it.amount}) เป็นของ "${targetOwner}" เรียบร้อยครับ!</b>\n\n${summaryText}`, kb, latestDraft.msgId);
+          }
+        }
+      }
+    }
+
+    // 2. Global Owner Change
     let newOwner = null;
     if (/พีเจ|แจง|ลูก/i.test(text)) newOwner = 'น้องพีเจ';
     else if (/แพร/i.test(text)) newOwner = 'พี่แพร';
@@ -971,6 +1160,6 @@ async function pollUpdates() {
 }
 
 // Start bot
-console.log('🤖 Sommai Telegram Bot v2.4 (Ultimate Owner Control) is starting...');
+console.log('🤖 Sommai Telegram Bot v2.5 (Item-by-Item Breakdown) is starting...');
 pollUpdates();
-console.log('✅ Sommai Telegram Bot v2.4 (@sommai_money_bot) is LIVE with Prominent Owner Menus!');
+console.log('✅ Sommai Telegram Bot v2.5 (@sommai_money_bot) is LIVE with Detailed Item-by-Item Breakdown!');
