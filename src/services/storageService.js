@@ -223,7 +223,7 @@ export const INITIAL_DATA = {
     { id: 'BNPL-08', title: '(1 ลัง 4 ห่อ) PASEO พาซิโอ คิตตี้ กระดาษชำระ 4 ชั้น', amount: 224.00, category: 'HOME', owner: 'บ้าน', isPaidBack: false, note: 'ของใช้ในบ้าน' },
     { id: 'BNPL-09', title: 'ชำระเงินหน้าร้าน - สุกี้ตี๋น้อย (สาขาแจ้งวัฒนะ)', amount: 276.06, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: false, note: 'ค่าอาหาร' },
     { id: 'BNPL-10', title: 'ShopeePay Order - Google', amount: 189.00, category: 'PRODUCTIVITY', owner: 'ตัวเอง', isPaidBack: false, note: 'Google One' },
-    { id: 'BNPL-11', title: '1 ฟรี 1 เสื้อปาดไหล่เอ็กซ์ตร้า ลายใหญ่ (L)', amount: 585.00, category: 'LIFESTYLE', owner: 'ตัวเอง', isPaidBack: false, note: 'เสื้อผ้า' },
+    { id: 'BNPL-11', title: '1 ฟรี 1 พิซซ่าขอบเอ็กซ์ตรีม ถาดใหญ่ (L) หมวดเดอลุกซ์', amount: 585.00, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: false, note: 'The Pizza Company 1 ฟรี 1' },
     { id: 'BNPL-12', title: '[Multi Function] เคสกันกระแทก สำหรับ Samsung Galaxy tab S7 S8 Plus', amount: 574.00, category: 'GADGET', owner: 'พี่แพร', isPaidBack: false, note: 'พี่แพรฝากซื้อ' },
     { id: 'BNPL-13', title: 'มือจับประตูด้านใน TOYOTA COROLLA มือเปิดใน', amount: 202.00, category: 'AUTO', owner: 'ตัวเอง', isPaidBack: false, note: 'อะไหล่รถยนต์' },
     { id: 'BNPL-14', title: 'ชำระเงินหน้าร้าน - Shinkanzen sushi (โลตัส ติวานนท์)', amount: 532.10, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: false, note: 'กระเป๋า 2 กินแซ่บ' },

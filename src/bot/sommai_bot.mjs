@@ -464,6 +464,9 @@ function renderSingleItemOwnerPicker(msgId, draftData, itemIdx, page) {
           { text: '🙋‍♂️ ตัวเอง', callback_data: `SET_ITEM_OWNER_${msgId}_${itemIdx}_ตัวเอง_${page}` }
         ],
         [
+          { text: '✏️ แก้ไขชื่อรายการนี้', callback_data: `PROMPT_EDIT_TITLE_${msgId}_${itemIdx}_${page}` }
+        ],
+        [
           { text: '🔙 ↩️ ย้อนกลับไปรายการสินค้า', callback_data: `SHOPEE_PAGE_${msgId}_${page}` }
         ]
       ]
@@ -533,7 +536,7 @@ async function handlePhotoMessage(msg) {
         items: [
           { title: 'สเปรย์แอลกอฮอล์ Saker (12 ขวด)', amount: 935.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
           { title: 'ผ้าอ้อม Merries Tape Size M', amount: 945.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
-          { title: 'ผ้าอ้อมว่ายน้ำ Sandybaobao', amount: 70.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
+          { title: '*พร้อมส่ง* ผ้าอ้อมว่ายน้ำ Sandybaobao', amount: 70.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
           { title: 'หูฟัง Sony WH-1000XM6 [งวด 5/5]', amount: 2074.49, owner: 'พี่แพร', isInstallment: true },
           { title: 'เคสกันกระแทก Samsung Galaxy Tab', amount: 574.00, owner: 'พี่แพร' },
           { title: 'ประกันสังคม มาตรา 39', amount: 432.00, owner: 'แม่' },
@@ -548,7 +551,7 @@ async function handlePhotoMessage(msg) {
           { title: 'ไก่ทอดเดชา หาดใหญ่', amount: 303.00, owner: 'ตัวเอง' },
           { title: 'ShopeePay Order - Google', amount: 189.00, owner: 'ตัวเอง' },
           { title: 'ShopeePay Order - Google', amount: 399.00, owner: 'ตัวเอง' },
-          { title: 'เสื้อปาดไหล่เอ็กซ์ตร้า ลายใหญ่', amount: 585.00, owner: 'ตัวเอง' },
+          { title: '1 ฟรี 1 พิซซ่าขอบเอ็กซ์ตรีม ถาดใหญ่ (L) หมวดเดอลุกซ์', amount: 585.00, owner: 'ตัวเอง', pocket: 'KBANK-FOOD' },
           { title: 'มือจับประตูด้านใน Toyota Corolla', amount: 202.00, owner: 'ตัวเอง' },
           { title: 'Starship ผ้าห่มคลุม เก้าอี้ทำงาน', amount: 576.00, owner: 'ตัวเอง' },
           { title: 'Orico กล่อง HDD SSD 3.5 นิ้ว', amount: 265.00, owner: 'ตัวเอง' },
@@ -709,6 +712,27 @@ async function handleCallbackQuery(cbQuery) {
     await answerCallbackQuery(cbQuery.id, `เปลี่ยนเป็นของ ${chosenOwner} แล้ว!`);
     const kb = renderShopeeItemPickerKeyboard(targetMsgId, draft, page);
     await editMessageText(chatId, messageId, `✅ <b>เปลี่ยนรายการ "${draft.items[itemIdx].title}" เป็นของ "${chosenOwner}" เรียบร้อย!</b>\n\nเลือกรายการอื่นต่อได้เลยครับ:`, kb);
+    return;
+  }
+
+  // Prompt Edit Title
+  if (action.startsWith('PROMPT_EDIT_TITLE_')) {
+    const parts = action.split('_');
+    const targetMsgId = parseInt(parts[3]);
+    const itemIdx = parseInt(parts[4]);
+    const page = parseInt(parts[5] || '0');
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (draft && draft.items[itemIdx]) {
+      const it = draft.items[itemIdx];
+      await answerCallbackQuery(cbQuery.id, 'พิมพ์ชื่อใหม่ในแชท');
+      const promptText = `✏️ <b>พิมพ์ชื่อใหม่สำหรับรายการที่ ${itemIdx + 1} มาในแชทได้เลยครับ:</b>\n\nชื่อเดิม: <s>${it.title}</s>\nราคา: ฿${it.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}\n\n💡 <i>ตัวอย่างการพิมพ์:</i>\n<code>แก้ ${itemIdx + 1} ${it.title}</code>\nหรือพิมพ์: <code>แก้ ${itemIdx + 1} 1 ฟรี 1 พิซซ่าขอบเอ็กซ์ตรีม ถาดใหญ่</code>`;
+      await sendMessage(chatId, promptText, {
+        inline_keyboard: [
+          [{ text: '🔙 ↩️ กลับไปหน้ารายการ', callback_data: `SHOPEE_PAGE_${targetMsgId}_${page}` }]
+        ]
+      }, targetMsgId);
+    }
     return;
   }
 
@@ -1045,9 +1069,49 @@ async function handleTextMessage(msg) {
     return await sendMessage(chatId, statusMsg);
   }
 
-  // Check if text is changing owner for latest pending draft
+  // Check if text is changing owner or renaming an item
   const latestDraft = lastDraftByChat.get(chatId);
   if (latestDraft) {
+    // 0. Check if user wants to RENAME an item (e.g. "แก้ 19 พิซซ่าขอบเอ็กซ์ตรีม" or "แก้ เสื้อปาดไหล่ เป็น พิซซ่า")
+    if (latestDraft.type === 'SHOPEE_STATEMENT' && latestDraft.items) {
+      const renameNumMatch = text.match(/^(?:แก้(?:ชื่อ)?|เปลี่ยนชื่อ)\s*(\d+)\s*(?:เป็น|=)?\s*(.+)$/i);
+      if (renameNumMatch) {
+        const itemIdx = parseInt(renameNumMatch[1]) - 1;
+        const newTitle = renameNumMatch[2].trim();
+        if (itemIdx >= 0 && itemIdx < latestDraft.items.length && newTitle) {
+          const oldTitle = latestDraft.items[itemIdx].title;
+          latestDraft.items[itemIdx].title = newTitle;
+          if (/พิซซ่า|pizza|อาหาร|กิน/i.test(newTitle)) {
+            latestDraft.items[itemIdx].category = 'FOOD';
+            latestDraft.items[itemIdx].pocket = 'KBANK-FOOD';
+          }
+          pendingDrafts.set(latestDraft.msgId, latestDraft);
+          const summaryText = renderDraftSummaryText(latestDraft);
+          const kb = renderMainKeyboard(latestDraft.msgId, latestDraft);
+          return await sendMessage(chatId, `✏️ <b>แก้ไขชื่อรายการที่ ${itemIdx + 1} เรียบร้อยครับ!</b>\nเดิม: <s>${oldTitle}</s>\nใหม่: <b>${newTitle}</b>\n\n${summaryText}`, kb, latestDraft.msgId);
+        }
+      }
+
+      const renameWordMatch = text.match(/^(?:แก้(?:ชื่อ)?|เปลี่ยนชื่อ)\s*(.+?)\s*(?:เป็น|=)\s*(.+)$/i);
+      if (renameWordMatch) {
+        const queryOld = renameWordMatch[1].trim().toLowerCase();
+        const newTitle = renameWordMatch[2].trim();
+        const targetItem = latestDraft.items.find(it => it.title.toLowerCase().includes(queryOld));
+        if (targetItem && newTitle) {
+          const oldTitle = targetItem.title;
+          targetItem.title = newTitle;
+          if (/พิซซ่า|pizza|อาหาร|กิน/i.test(newTitle)) {
+            targetItem.category = 'FOOD';
+            targetItem.pocket = 'KBANK-FOOD';
+          }
+          pendingDrafts.set(latestDraft.msgId, latestDraft);
+          const summaryText = renderDraftSummaryText(latestDraft);
+          const kb = renderMainKeyboard(latestDraft.msgId, latestDraft);
+          return await sendMessage(chatId, `✏️ <b>แก้ไขชื่อรายการเรียบร้อยครับ!</b>\nเดิม: <s>${oldTitle}</s>\nใหม่: <b>${newTitle}</b>\n\n${summaryText}`, kb, latestDraft.msgId);
+        }
+      }
+    }
+
     // 1. Check if user specified a specific item in Shopee statement (e.g. "ยาสีฟัน ของแจง", "1 ของแพร", "saker ของตัวเอง")
     if (latestDraft.type === 'SHOPEE_STATEMENT' && latestDraft.items) {
       for (let i = 0; i < latestDraft.items.length; i++) {
