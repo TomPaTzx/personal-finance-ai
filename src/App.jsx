@@ -107,15 +107,23 @@ export default function App() {
       const localCurrent = loadSOTData();
       
       // Compare local accounts vs cloud accounts
+      const hasLocalData = localStorage.getItem('PERSONAL_FINANCE_SOT_V2');
       const localStr = JSON.stringify(localCurrent.accounts || []);
       const cloudStr = JSON.stringify(res.data.accounts || []);
       const hasResolvedSession = sessionStorage.getItem('PF_CONFLICT_RESOLVED_SESSION');
 
-      if (!hasResolvedSession && localStr !== cloudStr && (localCurrent.accounts?.length > 0)) {
+      if (!hasLocalData) {
+        // First time on this machine/browser: Adopt Cloud SSOT seamlessly!
+        setSotData(res.data);
+        saveSOTData(res.data);
+        setCloudStatus('synced');
+        setLastSyncTime(new Date());
+      } else if (!hasResolvedSession && localStr !== cloudStr && (localCurrent.accounts?.length > 0)) {
         setConflictData({ local: localCurrent, cloud: res.data });
         setCloudStatus('synced');
       } else {
         setSotData(res.data);
+        saveSOTData(res.data);
         setCloudStatus('synced');
         setLastSyncTime(new Date());
       }
@@ -161,6 +169,7 @@ export default function App() {
       setConflictData((currentConflict) => {
         if (!currentConflict) {
           setSotData(newCloudData);
+          saveSOTData(newCloudData);
           setCloudStatus('synced');
           setLastSyncTime(new Date());
         }

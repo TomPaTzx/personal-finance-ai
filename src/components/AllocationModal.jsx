@@ -53,8 +53,11 @@ export default function AllocationModal({ isOpen, onClose, sotData, updateSOTDat
   const defaultSource = accounts.find(a => (a.balance || 0) > 0) || accounts[0];
   const [allocationSourceId, setAllocationSourceId] = useState(defaultSource?.id || 'KBANK-DEBIT');
   const [inflowAmount, setInflowAmount] = useState((defaultSource?.balance || 0).toString());
+  const calculatedSpayTarget = debts
+    .filter(d => d.status === 'ACTIVE' && (d.category === 'SPAYLATER' || d.linkedAccountId === 'KBANK-SPAY'))
+    .reduce((sum, d) => sum + (parseFloat(d.monthlyPayment) || 0), 0) || 4092.76;
   const [paySpayBill, setPaySpayBill] = useState(true);
-  const [spayTargetAmount, setSpayTargetAmount] = useState(13639.22);
+  const [spayTargetAmount, setSpayTargetAmount] = useState(calculatedSpayTarget);
   const [payHomeBill, setPayHomeBill] = useState(false);
   const [homeTargetAmount, setHomeTargetAmount] = useState(0);
   const [paySubsBill, setPaySubsBill] = useState(true);

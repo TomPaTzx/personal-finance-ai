@@ -72,32 +72,47 @@ export async function analyzeSlipWithGeminiVision(imageFile, context = {}) {
 - กระเป๋า [KBANK-EMERG]: เงินสำรองฉุกเฉิน
 - กระเป๋า [KBANK-MAIN]: เงินเดือนหลักเข้า
 
-กฎพิเศษสำหรับใบแจ้งยอด Shopee SPayLater (เช่น หน้าจอมีคำว่า "ยอดที่ยังไม่ได้ชำระ", "วันครบกำหนดชำระ 10 ต.ค.", "ผ่อนชำระ [X/Y]"):
-1. documentType ต้องเป็น "SPAYLATER_STATEMENT"
-2. amount คือยอดเงินรวมที่เรียกเก็บทั้งหมด (เช่น 4092.76)
-3. isSpayLater = true
-4. spayDetails ต้องระบุ:
-   - "totalStatement": ยอดรวมทั้งหมด (เช่น 4092.76)
-   - "dueDate": "10 ต.ค. 2026" (หรือตามที่ระบุในรูป)
-   - "cycle": "รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)"
-   - "installmentAmount": ยอดรวมผ่อนทั้งหมด
-5. lineItems: จงแกะรายการผ่อนชำระทุกรายการในรูปออกมาเป็นแถวๆ ให้ครบถ้วน (เช่น 8 รายการ) ระบุชื่อสินค้าพร้อมงวด [X/Y], ยอดเงินของงวดนั้น, และเจ้าของ (เช่น ถ้าเป็นหูฟัง Sony WH-1000XM ให้ใส่ owner: "พี่แพร", ถ้าเป็นอุปกรณ์บ้านให้ใส่ "บ้าน", นอกนั้นเป็น "ตัวเอง")
+กฎพิเศษสำหรับการอ่านรูปภาพ (บิล Shopee, ตะกร้าสินค้า, ใบเสร็จร้านค้า, สลิปโอนเงิน):
+1. หากเป็นหน้าจอ Shopee (เช่น หน้าคำสั่งซื้อ, หน้ารายละเอียดคำสั่งซื้อ, หน้ารายการผ่อน SPayLater):
+   - documentType: "SPAYLATER_STATEMENT" หรือ "GENERAL_BILL"
+   - isSpayLater = true (หากใช้ SPayLater หรือผ่อนชำระ)
+   - amount: ยอดเงินรวมทั้งบิล (เช่น 930.00 หรือตามยอดสุทธิ)
+2. lineItems (สำคัญมาก - Multi-Item Extraction):
+   - ต้องแกะรายการสินค้าทุกรายการในรูปออกมาเป็นแถวๆ ให้ครบถ้วนทั้งหมด (เช่น มี 5-10 ชิ้น ก็ต้องใส่มาให้ครบทั้ง 10 ชิ้น ห้ามรวมเป็นชิ้นเดียวเด็ดขาด)
+   - แต่ละชิ้นต้องระบุ:
+     - name: ชื่อสินค้าที่ชัดเจน (เช่น "ยาสีฟันเทพไทย", "สเปรย์แอลกอฮอล์ Saker (น้องพีเจ)")
+     - amount: ราคาสุทธิของสินค้านั้นๆ
+     - owner: ตรวจสอบและระบุผู้จ่ายตามบริบท:
+       * "น้องพีเจ" หรือ "แจง": ของใช้เด็ก/ลูก เช่น แบรนด์ Saker, D-nee, Merries, ผ้าอ้อม, นม, ทิชชู่เปียก
+       * "พี่แพร": ของพี่แพร (เช่น หูฟัง Sony WH-1000XM, สายชาร์จ, ของที่พี่แพรฝากซื้อ)
+       * "บ้าน" หรือ "แม่": ของใช้ส่วนรวมในบ้าน เช่น ปลั๊กไฟ, กริ่งบ้าน, น้ำยาล้างจาน, ของบำรุงสุขภาพแม่
+       * "ตัวเอง": สินค้าส่วนตัว (เช่น ยาสีฟัน, อาหาร, ขนม, ของเล่น, คอมพิวเตอร์)
+     - category: "KIDS" | "LIFESTYLE" | "FOOD" | "GADGET" | "HOME" | "HEALTH" | "BILL"
+     - installments: จำนวนงวด (ถ้าจ่ายรอบเดียวให้เป็น 1, ถ้าผ่อนให้ดูเลขงวด เช่น 3, 6, 12)
+     - monthlyPayment: ยอดจ่ายต่องวด
 
-จงวิเคราะห์รูปภาพนี้ (สลิปโอนเงิน / แคปหน้าจอ Shopee SPayLater / ใบเสร็จร้านอาหาร / ใบแจ้งหนี้) แล้วตอบกลับเป็น JSON เท่านั้น ตามโครงสร้างนี้:
+จงวิเคราะห์รูปภาพนี้แล้วตอบกลับเป็น JSON เท่านั้น ตามโครงสร้างนี้:
 {
   "documentType": "TRANSFER_SLIP" | "SPAYLATER_STATEMENT" | "FOOD_RECEIPT" | "GENERAL_BILL" | "UNKNOWN",
-  "title": "ชื่อหัวข้อรายการ เช่น บิล Shopee SPayLater (ครบกำหนด 10 ต.ค. 2026) / สลิปโอนเงิน / ชินคันเซ็น ซูชิ",
+  "title": "ชื่อหัวข้อรายการ เช่น ออเดอร์ Shopee SPayLater / บิลสินค้า Shopee / สลิปโอนเงิน",
   "amount": 0.00,
   "date": "YYYY-MM-DD",
   "time": "HH:mm",
-  "merchantOrReceiver": "ชื่อผู้รับเงินหรือร้านค้า",
-  "bankOrPlatform": "กสิกร / ไทยพาณิชย์ / Shopee SPayLater / etc",
+  "merchantOrReceiver": "ชื่อผู้รับเงินหรือร้านค้า เช่น Shopee / ShopeePay / ร้านค้า",
+  "bankOrPlatform": "Shopee SPayLater / กสิกร / ไทยพาณิชย์ / etc",
   "transactionRef": "รหัสอ้างอิงธุรกรรม",
-  "suggestedAction": "EXPENSE" | "DEBT_PAYMENT" | "INCOME",
-  "suggestedAccountId": "KBANK-FOOD" | "KBANK-SPAY" | "KBANK-SNACK" | "KBANK-MAIN" | "KBANK-DEBIT",
+  "suggestedAction": "EXPENSE" | "DEBT_PAYMENT" | "INCOME" | "NEW_BNPL_ITEM",
+  "suggestedAccountId": "KBANK-SPAY" | "KBANK-FOOD" | "KBANK-SNACK" | "KBANK-MAIN" | "KBANK-DEBIT",
   "suggestedAccountName": "ชื่อกระเป๋าเงินภาษาไทย",
   "lineItems": [
-    { "name": "[2/12] Bewell Ergo-multi Pillow Set", "amount": 241.53, "owner": "ตัวเอง" | "พี่แพร" | "บ้าน", "category": "FOOD" | "BABY" | "GADGET" | "BILL" | "GAMING" | "SMARTHOME" | "HEALTH" }
+    {
+      "name": "ชื่อสินค้า เช่น ยาสีฟันเทพไทย",
+      "amount": 280.00,
+      "owner": "ตัวเอง" | "น้องพีเจ" | "แจง" | "พี่แพร" | "แม่" | "บ้าน",
+      "category": "LIFESTYLE" | "KIDS" | "FOOD" | "GADGET" | "HOME" | "HEALTH",
+      "installments": 1,
+      "monthlyPayment": 280.00
+    }
   ],
   "isSpayLater": boolean,
   "spayDetails": {
@@ -110,7 +125,7 @@ export async function analyzeSlipWithGeminiVision(imageFile, context = {}) {
     "familyPortion": 0.00,
     "selfPortion": 0.00
   },
-  "coachWisdom": "คำแนะนำและจิตวิทยาการเงินสไตล์โค้ชหนุ่ม (เช่น ถ้าเป็นบิล SPayLater เดือนนี้ยอดลดลงเหลือ 4,092.76 เพราะพี่แพรช่วย 2,074 และมี 2 รายการผ่อนงวดสุดท้ายแล้ว!)",
+  "coachWisdom": "คำแนะนำและจิตวิทยาการเงินสไตล์โค้ชหนุ่ม (กระชับ ให้กำลังใจ ชี้จุดช่วยประหยัด)",
   "confidenceScore": 0.95
 }
 `;

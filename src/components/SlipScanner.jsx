@@ -22,7 +22,13 @@ import {
   BrainCircuit,
   Key,
   Mail,
-  Wallet
+  Wallet,
+  Plus,
+  CheckSquare,
+  Square,
+  ShoppingBag,
+  ListPlus,
+  Layers
 } from 'lucide-react';
 import { performSlipOCR } from '../services/slipParserService';
 import { analyzeSlipWithGeminiVision, getStoredGeminiApiKey, getStoredGeminiModel } from '../services/geminiVisionService';
@@ -58,11 +64,15 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
 
   const currentAcc = (sotData.accounts || []).find(a => a.id === selectedAccount) || (sotData.accounts || [])[0];
 
-  // BNPL Specific states
+  // BNPL & Multi-Item Specific states
   const [itemName, setItemName] = useState('');
   const [totalInstallments, setTotalInstallments] = useState('3');
   const [monthlyPayment, setMonthlyPayment] = useState('');
   const [owner, setOwner] = useState('ตัวเอง');
+
+  // Multi-Item Batch Scanning State
+  const [batchItems, setBatchItems] = useState([]);
+  const [isMultiItemMode, setIsMultiItemMode] = useState(false);
 
   const fileInputRef = useRef(null);
   const geminiApiKey = getStoredGeminiApiKey();
@@ -180,7 +190,48 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
           }
 
           if (gData.lineItems && gData.lineItems.length > 0) {
-            setItemName(gData.lineItems[0].name || '');
+            const parsedItems = gData.lineItems.map((li, idx) => {
+              const nameLower = (li.name || '').toLowerCase();
+              const isKids = nameLower.includes('saker') || 
+                             nameLower.includes('เด็ก') || 
+                             nameLower.includes('ผ้าอ้อม') || 
+                             nameLower.includes('ทิชชู่เปียก') || 
+                             nameLower.includes('นม') || 
+                             li.category === 'KIDS';
+              const isHome = nameLower.includes('ไฟ') || nameLower.includes('บ้าน') || li.category === 'HOME';
+              const isPhrae = nameLower.includes('sony') || (li.owner && li.owner.includes('แพร'));
+
+              let defaultOwner = li.owner;
+              if (!defaultOwner || defaultOwner === 'ตัวเอง') {
+                if (isKids) defaultOwner = 'น้องพีเจ';
+                else if (isPhrae) defaultOwner = 'พี่แพร';
+                else if (isHome) defaultOwner = 'บ้าน';
+                else defaultOwner = 'ตัวเอง';
+              }
+
+              return {
+                id: `ITEM-${Date.now()}-${idx}`,
+                selected: true,
+                name: li.name || `สินค้าที่ ${idx + 1}`,
+                amount: parseFloat(li.amount) || 0,
+                owner: defaultOwner,
+                category: li.category || (isKids ? 'KIDS' : 'LIFESTYLE'),
+                installments: parseInt(li.installments) || 1,
+                monthlyPayment: parseFloat(li.monthlyPayment) || parseFloat(li.amount) || 0
+              };
+            });
+
+            setBatchItems(parsedItems);
+            setItemName(parsedItems[0]?.name || '');
+            if (parsedItems.length > 1) {
+              setIsMultiItemMode(true);
+              setActionType('NEW_BNPL_ITEM');
+            } else {
+              setIsMultiItemMode(false);
+            }
+          } else {
+            setBatchItems([]);
+            setIsMultiItemMode(false);
           }
 
           toast(`✨ วิเคราะห์ด้วย ${geminiRes.modelUsed} สำเร็จ!`, { type: 'success' });
@@ -221,6 +272,19 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
         if (res.data.detectedMonthlyAmount) setMonthlyPayment(res.data.detectedMonthlyAmount.toString());
         if (res.data.detectedOwner) setOwner(res.data.detectedOwner);
         
+        setBatchItems([
+          {
+            id: `ITEM-${Date.now()}-0`,
+            selected: true,
+            name: res.data.detectedItemName || res.data.merchant || 'รายการจากสลิป',
+            amount: res.data.amount || 0,
+            owner: res.data.detectedOwner || 'ตัวเอง',
+            category: res.data.detectedCategory || 'FOOD',
+            installments: parseInt(res.data.detectedInstallments) || 1,
+            monthlyPayment: parseFloat(res.data.detectedMonthlyAmount) || res.data.amount || 0
+          }
+        ]);
+        
         toast('✨ สแกนสลิปด้วย Local OCR สำเร็จ!', { type: 'success' });
       } else {
         toast(`⚠️ สแกนสลิปไม่สำเร็จ: ${res.error || 'ไม่พบข้อความ'}`, { type: 'error' });
@@ -234,6 +298,7 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
         setAmount('');
         setMerchant('รายการจากสลิป');
         setBankRef('SLIP-' + Date.now().toString().slice(-6));
+        setBatchItems([]);
       }
     }
 
@@ -244,6 +309,190 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (file) handleFileChange(file);
+  };
+
+  // Batch Item Management Handlers
+  const handleBatchItemChange = (id, field, value) => {
+    setBatchItems(prev => prev.map(item => {
+      if (item.id === id) {
+        return { ...item, [field]: value };
+      }
+      return item;
+    }));
+  };
+
+  const handleToggleSelectItem = (id) => {
+    setBatchItems(prev => prev.map(item => {
+      if (item.id === id) {
+        return { ...item, selected: !item.selected };
+      }
+      return item;
+    }));
+  };
+
+  const handleSelectAllItems = (select) => {
+    setBatchItems(prev => prev.map(item => ({ ...item, selected: select })));
+  };
+
+  const handleAddBatchItem = () => {
+    const newItem = {
+      id: `ITEM-${Date.now()}-${batchItems.length}`,
+      selected: true,
+      name: '',
+      amount: 0,
+      owner: 'ตัวเอง',
+      category: 'LIFESTYLE',
+      installments: 1,
+      monthlyPayment: 0
+    };
+    setBatchItems(prev => [...prev, newItem]);
+    setIsMultiItemMode(true);
+  };
+
+  const handleRemoveBatchItem = (id) => {
+    setBatchItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  // Batch Confirm - Import all selected items at once
+  const handleBatchConfirm = async () => {
+    const selected = batchItems.filter(b => b.selected && (parseFloat(b.amount) > 0 || (b.name && b.name.trim())));
+    if (selected.length === 0) {
+      toast('⚠️ กรุณาเลือกรายการและระบุยอดเงินอย่างน้อย 1 รายการ', { type: 'warning' });
+      return;
+    }
+
+    let nextData = { ...sotData };
+    let newBnplList = [...(nextData.bnplItems || [])];
+    let newDebtsList = [...(nextData.debts || [])];
+    let updatedFamily = [...(nextData.familySettlements || [])];
+
+    let pjTotal = 0;
+    let phraeTotal = 0;
+    let momTotal = 0;
+    let selfTotal = 0;
+
+    selected.forEach((item, idx) => {
+      const uniqueSuffix = `${Date.now().toString().slice(-4)}${idx}`;
+      const numAmount = parseFloat(item.amount) || 0;
+      const instNum = parseInt(item.installments) || 1;
+      const monthNum = parseFloat(item.monthlyPayment) || (numAmount / instNum);
+
+      const newBnpl = {
+        id: `BNPL-${uniqueSuffix}`,
+        itemName: item.name || 'สินค้า Shopee',
+        title: item.name || 'สินค้า Shopee',
+        owner: item.owner || 'ตัวเอง',
+        amount: numAmount,
+        category: item.category || 'LIFESTYLE',
+        totalInstallments: instNum,
+        remainingInstallments: instNum,
+        monthlyPayment: monthNum,
+        remainingAmount: numAmount,
+        payerType: item.owner === 'ตัวเอง' ? 'WE_PAY' : 'THEY_PAY',
+        status: 'ACTIVE',
+        startDate: new Date().toISOString(),
+        isPaidBack: item.owner === 'ตัวเอง',
+        note: `บิล Shopee [Ref: ${bankRef}]`
+      };
+      newBnplList.unshift(newBnpl);
+
+      if (instNum > 1) {
+        newDebtsList.unshift({
+          id: `SPAY-${uniqueSuffix}`,
+          itemName: item.name || 'สินค้า Shopee',
+          owner: item.owner || 'ตัวเอง',
+          category: 'SPAYLATER',
+          totalAmount: numAmount,
+          remainingAmount: numAmount,
+          monthlyPayment: monthNum,
+          totalInstallments: instNum,
+          remainingInstallments: instNum,
+          payerType: item.owner === 'ตัวเอง' ? 'WE_PAY' : 'THEY_PAY',
+          status: 'ACTIVE'
+        });
+      }
+
+      if (item.owner === 'แจง' || item.owner === 'น้องพีเจ') {
+        pjTotal += numAmount;
+        updatedFamily = updatedFamily.map(p => {
+          if (p.id === 'PERSON-JAENG') {
+            const syncItem = {
+              id: `SYNC-${newBnpl.id}`,
+              title: item.name,
+              amount: numAmount,
+              type: 'THEY_OWE',
+              status: 'PENDING',
+              note: `ฝากซื้อ Shopee (${item.owner}) [Ref: ${bankRef}]`,
+              linkedSourceId: newBnpl.id
+            };
+            return { ...p, items: [syncItem, ...(p.items || [])] };
+          }
+          return p;
+        });
+      } else if (item.owner === 'พี่แพร') {
+        phraeTotal += numAmount;
+        updatedFamily = updatedFamily.map(p => {
+          if (p.id === 'PERSON-PHRAE') {
+            const syncItem = {
+              id: `SYNC-${newBnpl.id}`,
+              title: item.name,
+              amount: numAmount,
+              type: 'THEY_OWE',
+              status: 'PENDING',
+              note: `พี่แพรฝากซื้อ Shopee [Ref: ${bankRef}]`,
+              linkedSourceId: newBnpl.id
+            };
+            return { ...p, items: [syncItem, ...(p.items || [])] };
+          }
+          return p;
+        });
+      } else if (item.owner === 'แม่' || item.owner === 'บ้าน') {
+        momTotal += numAmount;
+        updatedFamily = updatedFamily.map(p => {
+          if (p.id === 'PERSON-MOM') {
+            const syncItem = {
+              id: `SYNC-${newBnpl.id}`,
+              title: item.name,
+              amount: numAmount,
+              type: 'THEY_OWE',
+              status: 'PENDING',
+              note: `ของใช้ในบ้าน/แม่ [Ref: ${bankRef}]`,
+              linkedSourceId: newBnpl.id
+            };
+            return { ...p, items: [syncItem, ...(p.items || [])] };
+          }
+          return p;
+        });
+      } else {
+        selfTotal += numAmount;
+      }
+    });
+
+    nextData = {
+      ...nextData,
+      bnplItems: newBnplList,
+      debts: newDebtsList,
+      familySettlements: updatedFamily
+    };
+
+    nextData = addAuditEvent(nextData, 'SLIP_OCR', bankRef, 'BATCH_BNPL_ADDED', {
+      count: selected.length,
+      selfTotal,
+      pjTotal,
+      phraeTotal,
+      momTotal
+    });
+
+    updateSOTData(nextData);
+
+    let summaryMsg = `🛍️ นำเข้าสำเร็จ ${selected.length} รายการ!`;
+    if (pjTotal > 0) summaryMsg += ` (ของน้องพีเจ ฿${pjTotal.toLocaleString()} วิ่งเข้าบิลแจงเรียบร้อย)`;
+    toast(summaryMsg, { type: 'success' });
+
+    setScannedResult(null);
+    setPreviewUrl(null);
+    setBatchItems([]);
+    setIsMultiItemMode(false);
   };
 
   // Submit and Apply Slip to SOT
@@ -433,6 +682,21 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
     setAmount('');
     setMerchant('');
   };
+
+  const selectedBatchItems = batchItems.filter(b => b.selected);
+  const batchTotal = selectedBatchItems.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+  const batchSelfTotal = selectedBatchItems
+    .filter(b => b.owner === 'ตัวเอง')
+    .reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+  const batchPjTotal = selectedBatchItems
+    .filter(b => b.owner === 'น้องพีเจ' || b.owner === 'แจง')
+    .reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+  const batchPhraeTotal = selectedBatchItems
+    .filter(b => b.owner === 'พี่แพร')
+    .reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+  const batchMomTotal = selectedBatchItems
+    .filter(b => b.owner === 'แม่' || b.owner === 'บ้าน')
+    .reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -747,29 +1011,390 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
             </div>
           )}
 
-          {/* Line Items Breakdown (If any) */}
-          {scannedResult.lineItems && scannedResult.lineItems.length > 0 && (
+          {/* Multi-Item / Single-Item Mode Switcher Header */}
+          {batchItems.length > 0 && (
             <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '10px 14px',
-              marginBottom: '16px'
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.08))',
+              border: '1px solid rgba(168, 85, 247, 0.35)',
+              borderRadius: 'var(--radius-md)',
+              padding: '12px 16px',
+              marginBottom: '18px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px'
             }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                รายการย่อยที่ AI ตรวจพบในภาพ:
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(168, 85, 247, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid rgba(168, 85, 247, 0.4)'
+                }}>
+                  <ShoppingBag size={20} color="var(--accent-purple)" />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#fff' }}>
+                    ตรวจพบสินค้าในบิลทั้งหมด {batchItems.length} รายการ (Shopee / Multi-Item Breakdown)
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                    {isMultiItemMode 
+                      ? 'โหมดนำเข้าแยกรายการ: ตรวจสอบชื่อ/ราคา และเลือกคนจ่าย (ตัวเอง/น้องพีเจ) ก่อนกดบันทึกพร้อมกัน' 
+                      : 'โหมดรวมยอดเดียว: บันทึกยอดรวมก้อนเดียวเข้ากระเป๋า'}
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {scannedResult.lineItems.map((item, iIdx) => (
-                  <span key={iIdx} className="badge badge-slate" style={{ fontSize: '0.75rem', padding: '4px 8px' }}>
-                    {item.name} {item.amount > 0 ? `(฿${item.amount.toLocaleString()})` : ''}
-                  </span>
-                ))}
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsMultiItemMode(true)}
+                  className={`btn ${isMultiItemMode ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ fontSize: '0.78rem', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <ListPlus size={14} /> แตก {batchItems.length} รายการ (แนะนำ)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsMultiItemMode(false)}
+                  className={`btn ${!isMultiItemMode ? 'btn-secondary' : 'btn-outline'}`}
+                  style={{ fontSize: '0.78rem', padding: '6px 14px' }}
+                >
+                  💳 รวมยอดเดียว (฿{parseFloat(amount || 0).toLocaleString()})
+                </button>
               </div>
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          {isMultiItemMode && batchItems.length > 0 ? (
+            /* Multi-Item Breakdown View */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* Collapsible Image Preview */}
+              {previewUrl && (
+                <div style={{
+                  background: 'rgba(0, 0, 0, 0.4)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', background: '#000', flexShrink: 0 }}>
+                    <img src={previewUrl} alt="Slip" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#fff' }}>
+                      📸 รูปภาพบิล / แคปหน้าจอคำสั่งซื้อ Shopee
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      AI ตรวจพบ {batchItems.length} รายการ สามารถแก้ไขชื่อ ราคา และเลือกคนรับผิดชอบได้โดยตรงในตาราง
+                    </div>
+                  </div>
+                  <a 
+                    href={previewUrl} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="btn btn-outline"
+                    style={{ fontSize: '0.75rem', padding: '5px 10px' }}
+                  >
+                    🔍 ดูภาพเต็ม
+                  </a>
+                </div>
+              )}
+
+              {/* Multi-Item Table Container */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.7)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  padding: '12px 16px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectAllItems(selectedBatchItems.length < batchItems.length)}
+                      className="btn btn-outline"
+                      style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      {selectedBatchItems.length === batchItems.length ? <CheckSquare size={14} /> : <Square size={14} />}
+                      {selectedBatchItems.length === batchItems.length ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'}
+                    </button>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      เลือกแล้ว <strong style={{ color: '#fff' }}>{selectedBatchItems.length}</strong> จาก {batchItems.length} รายการ
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddBatchItem}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Plus size={14} /> เพิ่มรายการใหม่
+                  </button>
+                </div>
+
+                {/* Items List */}
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {batchItems.map((item, index) => (
+                    <div 
+                      key={item.id}
+                      style={{
+                        padding: '12px 16px',
+                        display: 'grid',
+                        gridTemplateColumns: 'auto minmax(180px, 2fr) minmax(100px, 1fr) minmax(140px, 1.2fr) minmax(110px, 1fr) auto',
+                        gap: '12px',
+                        alignItems: 'center',
+                        background: item.selected ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.3)',
+                        opacity: item.selected ? 1 : 0.5,
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {/* Checkbox */}
+                      <input 
+                        type="checkbox"
+                        checked={item.selected}
+                        onChange={() => handleToggleSelectItem(item.id)}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--accent-cyan)' }}
+                      />
+
+                      {/* Item Name */}
+                      <div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                          #{index + 1} ชื่อสินค้า:
+                        </div>
+                        <input 
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => handleBatchItemChange(item.id, 'name', e.target.value)}
+                          placeholder="ชื่อสินค้า เช่น ยาสีฟันเทพไทย"
+                          style={{
+                            width: '100%',
+                            padding: '6px 10px',
+                            fontSize: '0.82rem',
+                            background: 'rgba(0, 0, 0, 0.5)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: '#fff'
+                          }}
+                        />
+                      </div>
+
+                      {/* Amount */}
+                      <div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                          ราคา (บาท):
+                        </div>
+                        <input 
+                          type="number"
+                          step="0.01"
+                          value={item.amount}
+                          onChange={(e) => handleBatchItemChange(item.id, 'amount', e.target.value)}
+                          placeholder="0.00"
+                          style={{
+                            width: '100%',
+                            padding: '6px 10px',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            background: 'rgba(0, 0, 0, 0.5)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: 'var(--accent-cyan)'
+                          }}
+                        />
+                      </div>
+
+                      {/* Owner Selector */}
+                      <div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                          ผู้จ่าย / เจ้าของ:
+                        </div>
+                        <select
+                          value={item.owner}
+                          onChange={(e) => handleBatchItemChange(item.id, 'owner', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '6px 10px',
+                            fontSize: '0.78rem',
+                            background: item.owner === 'น้องพีเจ' || item.owner === 'แจง' 
+                              ? 'rgba(236, 72, 153, 0.15)' 
+                              : (item.owner === 'พี่แพร' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(0, 0, 0, 0.5)'),
+                            border: `1px solid ${item.owner === 'น้องพีเจ' || item.owner === 'แจง' ? 'rgba(236, 72, 153, 0.4)' : 'var(--border-subtle)'}`,
+                            borderRadius: 'var(--radius-sm)',
+                            color: item.owner === 'น้องพีเจ' || item.owner === 'แจง' ? '#f472b6' : '#fff'
+                          }}
+                        >
+                          <option value="ตัวเอง">🙋‍♂️ ตัวเอง</option>
+                          <option value="น้องพีเจ">👶 น้องพีเจ (แจงโอนคืน)</option>
+                          <option value="แจง">👰 แจง (แจงโอนคืน)</option>
+                          <option value="พี่แพร">👩 พี่แพร (พี่แพรโอนคืน)</option>
+                          <option value="บ้าน">🏠 บ้าน / ส่วนรวม</option>
+                          <option value="แม่">👵 คุณแม่</option>
+                        </select>
+                      </div>
+
+                      {/* Category Selector */}
+                      <div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                          หมวดหมู่:
+                        </div>
+                        <select
+                          value={item.category}
+                          onChange={(e) => handleBatchItemChange(item.id, 'category', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '6px 10px',
+                            fontSize: '0.78rem',
+                            background: 'rgba(0, 0, 0, 0.5)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: '#fff'
+                          }}
+                        >
+                          <option value="LIFESTYLE">ของใช้ / ทั่วไป</option>
+                          <option value="KIDS">ลูก / น้องพีเจ</option>
+                          <option value="FOOD">อาหาร / ขนม</option>
+                          <option value="GADGET">ไอที / แกดเจ็ต</option>
+                          <option value="HOME">ของใช้ในบ้าน</option>
+                          <option value="HEALTH">สุขภาพ / ยา</option>
+                          <option value="BILL">บิล / บริการ</option>
+                        </select>
+                      </div>
+
+                      {/* Delete Action */}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBatchItem(item.id)}
+                        className="btn btn-outline"
+                        title="ลบแถวนี้"
+                        style={{ padding: '6px', color: 'var(--accent-rose)', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Real-time Financial Breakdown Summary Cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '12px'
+              }}>
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'rgba(6, 182, 212, 0.08)',
+                  border: '1px solid rgba(6, 182, 212, 0.3)'
+                }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>ยอดรวมที่เลือกนำเข้า:</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--accent-cyan)' }}>
+                    ฿{batchTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{selectedBatchItems.length} รายการ</div>
+                </div>
+
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--border-subtle)'
+                }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>🙋‍♂️ เราจ่ายเอง (ตัวเอง):</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
+                    ฿{batchSelfTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>เข้า SPayLater ส่วนตัว</div>
+                </div>
+
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'rgba(236, 72, 153, 0.08)',
+                  border: '1px solid rgba(236, 72, 153, 0.3)'
+                }}>
+                  <div style={{ fontSize: '0.72rem', color: '#f472b6' }}>👶 น้องพีเจ (แจงโอนคืน):</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f472b6' }}>
+                    ฿{batchPjTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>⚡ ซิงค์เข้าบิลแจงอัตโนมัติ</div>
+                </div>
+
+                {batchPhraeTotal > 0 && (
+                  <div style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(168, 85, 247, 0.08)',
+                    border: '1px solid rgba(168, 85, 247, 0.3)'
+                  }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--accent-purple)' }}>👩 พี่แพรโอนคืน:</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent-purple)' }}>
+                      ฿{batchPhraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>ซิงค์เข้าบิลพี่แพร</div>
+                  </div>
+                )}
+
+                {batchMomTotal > 0 && (
+                  <div style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)'
+                  }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)' }}>🏠 บ้าน / แม่:</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent-amber)' }}>
+                      ฿{batchMomTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>ซิงค์เข้าบิลครอบครัว</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Batch Confirm Button */}
+              <button
+                type="button"
+                onClick={handleBatchConfirm}
+                className="btn btn-success"
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  boxShadow: '0 4px 20px rgba(16, 185, 129, 0.3)',
+                  marginTop: '8px'
+                }}
+              >
+                <CheckCircle size={20} /> ยืนยันนำเข้าทั้ง {selectedBatchItems.length} รายการเข้าสู่ระบบ
+              </button>
+
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
             
             {/* Left: Image Preview */}
             {previewUrl && (
@@ -924,8 +1549,11 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
                       style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
                     >
                       <option value="ตัวเอง">🙋‍♂️ ตัวเอง (นับเป็นหนี้สินส่วนตัว)</option>
+                      <option value="น้องพีเจ">👶 น้องพีเจ (แจงโอนคืน)</option>
+                      <option value="แจง">👰 แจง (แจงโอนคืน)</option>
                       <option value="พี่แพร">👩 พี่แพร (พี่แพรโอนเงินคืนเราทุกงวด)</option>
                       <option value="บ้าน">🏠 บ้าน / คุณแม่</option>
+                      <option value="แม่">👵 คุณแม่</option>
                     </select>
                   </div>
                 </div>
@@ -1139,6 +1767,7 @@ export default function SlipScanner({ sotData, updateSOTData, onOpenSettings }) 
             </div>
 
           </div>
+          )}
 
         </div>
       )}

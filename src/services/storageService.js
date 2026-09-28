@@ -213,25 +213,8 @@ export const INITIAL_DATA = {
     }
   ],
   bnplItems: [
-    { id: 'BNPL-01', title: 'Beefy Cheesy Burrito Combo', amount: 142, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'สแกนกิน' },
-    { id: 'BNPL-02', title: '[อร่อยซ่ากับโค้ก] เบอร์เกอร์ไก่เปปเปอร์ แมคนักเก็ต', amount: 130, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'McDonalds' },
-    { id: 'BNPL-03', title: 'ชำระเงินหน้าร้าน - Shinkanzen sushi (โลตัส ติวานนท์)', amount: 626, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'สแกนจ่ายหน้าร้าน' },
-    { id: 'BNPL-04', title: 'ชำระเงินหน้าร้าน - Shinkanzen sushi (โลตัส ติวานนท์)', amount: 438.20, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'สแกนจ่ายหน้าร้าน' },
-    { id: 'BNPL-05', title: 'ใบปัดน้ำฝน แพ็คคู่ Nissan March (ปี 2010-2020) FIL AERO 21"', amount: 336, category: 'VEHICLE', owner: 'บ้าน', isPaidBack: true, note: 'ดูแลรถ' },
-    { id: 'BNPL-06', title: 'D-nee ดีนี่ ผลิตภัณฑ์ซักผ้าเด็ก Organic New Born 2500-2800 มล.', amount: 399, category: 'KIDS', owner: 'แจง', isPaidBack: false, note: 'แจงฝากซื้อของน้องพีเจ' },
-    { id: 'BNPL-07', title: 'ShopeePay Order - Google (CapCut Pro)', amount: 29, category: 'DIGITAL', owner: 'ตัวเอง', isPaidBack: true, note: 'CapCut Pro โปรเดือนแรก ฿29' },
-    { id: 'BNPL-08', title: '[อร่อยซ่ากับโค้ก] ชุดบิกแมค (XL)', amount: 283, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'McDonalds' },
-    { id: 'BNPL-09', title: 'Merries Japan Tape Size M 52 pcs. ผ้าอ้อมเด็กเมอร์รี่ส์', amount: 449, category: 'KIDS', owner: 'แจง', isPaidBack: false, note: 'ผ้าอ้อมน้องพีเจ (แจงฝากซื้อ)' },
-    { id: 'BNPL-10', title: 'HOCO HI25 HI26 กริ่งไร้สาย ไม่ใช้ถ่าน ไม่ต้องเดินสายไฟ', amount: 279, category: 'HOME', owner: 'บ้าน', isPaidBack: true, note: 'ของใช้ในบ้าน' },
-    { id: 'BNPL-11', title: 'ShopeePay Order - Google (Google One AI Plus)', amount: 189, category: 'DIGITAL', owner: 'ตัวเอง', isPaidBack: true, note: 'Google One AI Plus ฿189' },
-    { id: 'BNPL-12', title: '[อร่อยซ่ากับโค้ก] อิ่มคุ้มแมคไก่', amount: 218, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'McDonalds' },
-    { id: 'BNPL-13', title: 'ชำระเงินหน้าร้าน - Shinkanzen Lotus Tiwanon', amount: 626, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'สแกนจ่ายหน้าร้าน' },
-    { id: 'BNPL-14', title: 'กระเป๋าเก็บความเย็น กระเป๋าเก็บน้ำนม B-KOOL Our Back 20 ชม.', amount: 2732, category: 'KIDS', owner: 'แจง', isPaidBack: false, note: 'กระเป๋าเก็บน้ำนม (แจงฝากซื้อ)' },
-    { id: 'BNPL-15', title: 'ซื้อ 2 ชิ้น ลด ฿1', amount: 262, category: 'LIFESTYLE', owner: 'ตัวเอง', isPaidBack: true, note: 'เสื้อผ้า' },
-    { id: 'BNPL-16', title: '[โปรโมชัน] ถาดใหญ่ - พิซซ่า ขอบเอ็กซ์ตรีม เดอลุกซ์', amount: 591, category: 'FOOD', owner: 'ครอบครัว', isPaidBack: true, note: 'อาหารครอบครัว' },
-    { id: 'BNPL-17', title: 'Social Security Office Section 39 (ประกันสังคม ม.39)', amount: 432, category: 'WELFARE', owner: 'ตัวเอง', isPaidBack: true, note: 'ประกันสังคม ม.39 ตัดผ่าน ShopeePay' },
-    { id: 'BNPL-18', title: 'ShopeePay Order - Google (YouTube Premium)', amount: 399, category: 'DIGITAL', owner: 'ตัวเอง', isPaidBack: true, note: 'YouTube Premium Family ฿399' },
-    { id: 'BNPL-19', title: 'ชำระเงินหน้าร้าน - Shinkanzen Lotus Tiwanon', amount: 626, category: 'FOOD', owner: 'ตัวเอง', isPaidBack: true, note: 'สแกนจ่ายหน้าร้าน' }
+    { id: 'BNPL-01', title: 'ยาสีฟันเทพไทย (Tepthai Toothpaste)', amount: 280, category: 'LIFESTYLE', owner: 'ตัวเอง', isPaidBack: false, note: 'ออเดอร์ Shopee ประจำรอบ ก.ย.' },
+    { id: 'BNPL-02', title: 'สเปรย์แอลกอฮอล์ Saker (น้องพีเจ)', amount: 650, category: 'KIDS', owner: 'น้องพีเจ', isPaidBack: false, note: 'ของใช้น้องพีเจ แจงฝากซื้อผ่าน Shopee' }
   ],
   debts: [
     {
@@ -421,12 +404,10 @@ export const INITIAL_DATA = {
       id: 'PERSON-JAENG',
       personName: 'แจง (ภรรยา & แม่น้องพีเจ)',
       relation: 'WIFE',
-      note: 'แจงโอนคืนเราสุทธิ ฿2,392.00 (แจงช่วยค่าไฟ ฿2,000 + ของใช้น้องพีเจ)',
+      note: 'แจงโอนคืนเราสุทธิ ฿2,200.00 (ช่วยค่าไฟ ฿2,000 + สเปรย์ Saker น้องพีเจ ฿650 - ของใช้ ฿450)',
       items: [
         { id: 'J-ELEC', title: '⚡ แจงช่วยออกค่าไฟบ้าน (ประจำเดือน)', amount: 2000, type: 'THEY_OWE', status: 'PENDING', note: 'แจงช่วยสมทบค่าไฟบ้านเดือนละ ฿2,000 หักลบในบ้าน' },
-        { id: 'J-1', title: 'กระเป๋าเก็บความเย็น/น้ำนม B-KOOL Our Back 20 ชม.', amount: 2732, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater', linkedSourceId: 'BNPL-14' },
-        { id: 'J-2', title: 'ผ้าอ้อม Merries Japan Tape Size M (น้องพีเจ)', amount: 449, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater', linkedSourceId: 'BNPL-09' },
-        { id: 'J-3', title: 'D-nee น้ำยาซักผ้าเด็ก Organic New Born 2800 มล.', amount: 399, type: 'THEY_OWE', status: 'PENDING', note: 'แจงฝากซื้อผ่าน SPayLater', linkedSourceId: 'BNPL-06' },
+        { id: 'SYNC-BNPL-02', title: 'สเปรย์แอลกอฮอล์ Saker (น้องพีเจ)', amount: 650, type: 'THEY_OWE', status: 'PENDING', note: 'ของใช้น้องพีเจ แจงฝากกด Shopee SPayLater', linkedSourceId: 'BNPL-02' },
         { id: 'J-4', title: 'ค่าของใช้ในห้อง/ซูเปอร์มาร์เก็ต (แจงจ่าย)', amount: 450, type: 'WE_OWE', status: 'PENDING', note: 'หารครึ่ง' }
       ]
     }
@@ -509,10 +490,8 @@ export const reconcileFamilySettlements = (rawFamily, bnplItems = [], debts = []
       const existingIdx = items.findIndex(i => {
         if (i.linkedSourceId && i.linkedSourceId === b.id) return true;
         if (i.id === `SYNC-${b.id}`) return true;
-        // Known initial mock pairings
-        if (b.id === 'BNPL-14' && (i.id === 'J-1' || i.title?.includes('B-KOOL'))) return true;
-        if (b.id === 'BNPL-09' && (i.id === 'J-2' || i.title?.toLowerCase().includes('merries'))) return true;
-        if (b.id === 'BNPL-06' && (i.id === 'J-3' || i.title?.toLowerCase().includes('d-nee') || i.title?.includes('ดีนี่'))) return true;
+        // Known initial pairings
+        if (b.id === 'BNPL-02' && (i.id === 'SYNC-BNPL-02' || i.title?.toLowerCase().includes('saker'))) return true;
         // Text match
         if (bTitle && i.title && (i.title === bTitle || i.title.includes(bTitle) || bTitle.includes(i.title))) return true;
         return false;
@@ -636,8 +615,8 @@ export const sanitizeSOTData = (parsed) => {
     });
   }
 
-  const bnplItems = parsed.bnplItems || INITIAL_DATA.bnplItems;
-  const rawFamily = parsed.familySettlements || INITIAL_DATA.familySettlements;
+  const bnplItems = Array.isArray(parsed.bnplItems) ? parsed.bnplItems : (INITIAL_DATA.bnplItems || []);
+  const rawFamily = Array.isArray(parsed.familySettlements) ? parsed.familySettlements : (INITIAL_DATA.familySettlements || []);
   const familySettlements = reconcileFamilySettlements(rawFamily, bnplItems, updatedDebts);
 
   return {

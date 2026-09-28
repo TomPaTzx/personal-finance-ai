@@ -90,7 +90,10 @@ export function simulateCashflow(sotData, options = {}) {
 
   const startDate = new Date(); // Real time opening date (e.g. 2 Sep 2026)
   let spayBillPaidThisMonth = sotData.spayStatementStatus === 'PAID';
-  const monthlySpayEstimate = 13639.22;
+  const calculatedSpay = (sotData.debts || [])
+    .filter(d => d.status === 'ACTIVE' && (d.category === 'SPAYLATER' || d.linkedAccountId === 'KBANK-SPAY'))
+    .reduce((sum, d) => sum + (parseFloat(d.monthlyPayment) || 0), 0);
+  const monthlySpayEstimate = calculatedSpay > 0 ? calculatedSpay : 4092.76;
   const teacherSalary = 17993.32;
 
   let currentMonthTracked = startDate.getMonth();

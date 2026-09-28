@@ -65,20 +65,26 @@ export default function GoalsAndAnalytics({ sotData, updateSOTData }) {
   ];
 
   // 1. Group Expenses by Category
+  const momPerson = (sotData.familySettlements || []).find(p => p.id === 'PERSON-MOM');
+  const momBillsTotal = (momPerson?.items || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0) || 8783.29;
+  const selfDebtsTotal = (sotData.debts || [])
+    .filter(d => d.status === 'ACTIVE' && d.payerType === 'WE_PAY')
+    .reduce((sum, d) => sum + (parseFloat(d.monthlyPayment) || 0), 0) || 2807.43;
+
   const expenseCategories = [
     {
       category: '🏠 บ้าน & แม่ (Home & Family)',
-      amount: 8783.29,
+      amount: momBillsTotal,
       color: '#06b6d4',
-      items: 'ค่าไฟบ้าน ฿3,752, ค่ากับข้าวแม่ ฿2,000, เน็ต ฿1,426, น้ำ ฿315, ประกัน ฿680, ดูหนัง ฿609',
+      items: 'ค่าไฟบ้าน, ค่ากับข้าวแม่, เน็ต, น้ำ, ประกัน (ตามบิลแม่จริง)',
       advice: 'บิลจำเป็นของครอบครัว มีแจงช่วยออกค่าไฟ ฿2,000 หักลบในบ้าน'
     },
     {
       category: '🛍️ ค่างวดผ่อนส่วนตัว (Gadgets & Gear)',
-      amount: 2807.43,
+      amount: selfDebtsTotal,
       color: '#f43f5e',
-      items: 'G29 ฿567, หมอน Becell ฿741, Cuktech ฿577, หมวก Real Dawn ฿388, Sonoff ฿176, Vento ฿170, Shifter ฿114, Tuya ฿72 (หูฟัง Sony ฿2,370 เป็นของพี่แพร)',
-      advice: '💡 จุดลดรายจ่ายสำคัญ: อีก 2 เดือน พาวเวอร์แบงก์ Cuktech และหมวก Real Dawn จะผ่อนหมด! ปลดล็อกเงินสดเพิ่มอีก +฿965.48/เดือน!'
+      items: (sotData.debts || []).filter(d => d.status === 'ACTIVE' && d.payerType === 'WE_PAY').map(d => `${d.itemName} ฿${d.monthlyPayment}`).join(', ') || 'G29, หมอน, Cuktech',
+      advice: '💡 จุดลดรายจ่ายสำคัญ: ทยอยผ่อนหมดตามงวด ปลดล็อกเงินสดคืนสู่กระเป๋า'
     },
     {
       category: '🍜 ค่ากินแซ่บ & มื้ออร่อย (Food & Craving)',

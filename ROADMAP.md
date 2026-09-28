@@ -58,6 +58,12 @@
   - [x] ระบบผู้ช่วยจัดสรรเงินตามจุดประสงค์ของทุกกระเป๋า (Holistic Multi-Pocket & Purpose-Driven Balancer) พร้อมระบบ Income Milestones ติดตามวงรอบเงินเข้า (เงินเดือน/เงินเสาร์/โอเย็นสิ้นเดือน) + แถบเกลี่ยเงินส่วนเกิน (Rebalance) & จำลองรับเงินสดโอเย็นสิ้นเดือน (~฿3,600)
   - [x] Hotfix ระบบแก้ไขยอดเงินบัญชี/กระเป๋า (Accounts Balance Edit) และ Modal บันทึกรับเงินสดโอเย็น: แก้ไข Missing React State Hooks ให้ทำงานได้เสถียร 100% ป้องกัน ReferenceError ที่ทำให้เกิดจอขาว/จอดำ
 
+  - [x] **ระบบสแกนและนำเข้ารายการย่อยหลายรายการ (Multi-Item Batch Intake Engine & Cloud-First SSOT)**:
+    - [x] อัปเกรด Gemini Vision Prompt ดึงรายการย่อยแบบละเอียดยิบ (5-10+ รายการ) จากหน้าคำสั่งซื้อ Shopee / สลิปรวม
+    - [x] หน้าต่างเลือกและแก้ไข Multi-Item Breakdown View พร้อมระบบติ๊กเลือก/แก้ไขชื่อ/ปรับยอด/ระบุเจ้าของย่อย (`น้องพีเจ`, `แจง`, `พี่แพร`, `บ้าน`, `แม่`, `ตัวเอง`)
+    - [x] ปุ่ม 1-Click นำเข้าทุกรายการย่อยเข้า BNPL พร้อมสร้างงวดผ่อนและซิงค์ยอดเรียกเก็บคนในครอบครัวอัตโนมัติ
+    - [x] ล้าง Mock Data เก่าเดือนสิงหาคมออกจากระบบ และติดตั้ง Cloud-First SSOT สถาปัตยกรรมความจริงเดียวจาก Supabase Cloud ป้องกันข้อมูลจริงถูกเขียนทับ
+
 - [ ] **Phase 8 (Future Blueprint): Commercial Mobile App & SaaS Transformation (แผนต่อยอดสู่แอปมือถือเพื่อการค้า)**
   - [ ] **Track 1: Multi-Tenant Architecture & Auth (ระบบสมาชิก & แยกฐานข้อมูลผู้ใช้)**
     - [ ] Supabase Auth Integration (Login ด้วย Google, Apple ID, LINE Login)
