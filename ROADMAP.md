@@ -56,6 +56,7 @@
   - [x] ระบบสแกนสลิป Live Cloud Pockets Strip แสดงยอดทุกกระเป๋าแบบเรียลไทม์ + พรีวิวยอดคงเหลือสุทธิก่อน/หลังตัดสลิป ป้องกันการเลือกกระเป๋าผิดและสับสนยอดเงินคงเหลือธนาคาร vs Pockets
   - [x] ระบบ 1-Click เติมเงินเดือนด่วนบนการ์ด KTB-SALARY + ระบบ Quick Text Sync ข้ามอุปกรณ์ รองรับการใช้งานแม้ Supabase Cloud ออฟไลน์
   - [x] ระบบผู้ช่วยจัดสรรเงินตามจุดประสงค์ของทุกกระเป๋า (Holistic Multi-Pocket & Purpose-Driven Balancer) พร้อมระบบ Income Milestones ติดตามวงรอบเงินเข้า (เงินเดือน/เงินเสาร์/โอเย็นสิ้นเดือน) + แถบเกลี่ยเงินส่วนเกิน (Rebalance) & จำลองรับเงินสดโอเย็นสิ้นเดือน (~฿3,600)
+  - [x] Hotfix ระบบแก้ไขยอดเงินบัญชี/กระเป๋า (Accounts Balance Edit) และ Modal บันทึกรับเงินสดโอเย็น: แก้ไข Missing React State Hooks ให้ทำงานได้เสถียร 100% ป้องกัน ReferenceError ที่ทำให้เกิดจอขาว/จอดำ
 
 - [ ] **Phase 8 (Future Blueprint): Commercial Mobile App & SaaS Transformation (แผนต่อยอดสู่แอปมือถือเพื่อการค้า)**
   - [ ] **Track 1: Multi-Tenant Architecture & Auth (ระบบสมาชิก & แยกฐานข้อมูลผู้ใช้)**

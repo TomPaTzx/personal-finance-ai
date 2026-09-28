@@ -96,6 +96,7 @@
   1. **Dual-Layer Persistence:** บันทึกทั้งลง `localStorage` (เพื่อความเร็วและเปิดดูออฟไลน์ได้) และ Auto-Push ขึ้น Supabase Cloud ทันที
   2. **Multi-Device Realtime:** รองรับ Realtime Postgres Change Listener เมื่อแก้ไขตัวเลขจากอุปกรณ์หนึ่ง อุปกรณ์อื่นจะอัปเดตตามทันที
   3. **Auto-Seed:** หาก Cloud ยังไม่มีข้อมูล จะดึงค่าล่าสุดจากระบบขึ้นไป Seed บน Cloud ให้อัตโนมัติ
+* **Production Web App:** [https://personal-finance-ai-eight.vercel.app/](https://personal-finance-ai-eight.vercel.app/) (เชื่อมต่อ Auto-Deploy กับ GitHub Repo `main` branch)
 
 ---
 

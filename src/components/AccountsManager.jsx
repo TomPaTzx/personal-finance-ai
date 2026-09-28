@@ -37,6 +37,17 @@ export default function AccountsManager({ sotData, updateSOTData }) {
   const [showBookmarkletModal, setShowBookmarkletModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
 
+  // Edit account modal states
+  const [editName, setEditName] = useState('');
+  const [editBalance, setEditBalance] = useState('');
+  const [editPurpose, setEditPurpose] = useState('');
+
+  // OT Cash modal states
+  const [otType, setOtType] = useState('EVENING');
+  const [otDays, setOtDays] = useState('');
+  const [otCustomAmount, setOtCustomAmount] = useState('');
+  const [depositTarget, setDepositTarget] = useState('KBANK-DEBIT');
+
   // Transfer states
   const [fromAccount, setFromAccount] = useState('KTB-SALARY');
   const [toAccount, setToAccount] = useState('KBANK-MAIN');
@@ -133,7 +144,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
   const handleOpenEditAccount = (acc) => {
     setEditingAccount(acc);
     setEditName(acc.name);
-    setEditBalance(acc.balance.toString());
+    setEditBalance(acc?.balance !== undefined && acc?.balance !== null ? acc.balance.toString() : '0');
     setEditPurpose(acc.purpose || '');
   };
 
@@ -163,6 +174,7 @@ export default function AccountsManager({ sotData, updateSOTData }) {
 
     updateSOTData(nextData);
     setEditingAccount(null);
+    toast(`✅ บันทึกยอดเงิน [${editName}] เป็น ฿${balance.toLocaleString()} เรียบร้อยแล้ว!`, { type: 'success' });
   };
 
   const getAccountBadge = (category) => {
