@@ -1,9 +1,9 @@
 // Gemini Multimodal Vision Service for Sommai Money
-// Supports gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash, or custom models
+// Supports gemini-2.0-flash, gemini-1.5-flash, or custom models
 
 const GEMINI_API_KEY_STORAGE = 'SOMMAI_GEMINI_API_KEY';
 const GEMINI_MODEL_STORAGE = 'SOMMAI_GEMINI_MODEL';
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-2.0-flash';
 
 export const getStoredGeminiApiKey = () => {
   return localStorage.getItem(GEMINI_API_KEY_STORAGE) || '';

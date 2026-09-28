@@ -140,9 +140,9 @@ export default function GeminiSettingsModal({ isOpen, onClose }) {
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '10px' }}>
             {[
-              { id: 'gemini-2.5-flash', label: '2.5 Flash', badge: 'รุ่นแนะนำ' },
-              { id: 'gemini-2.0-flash', label: '2.0 Flash', badge: 'เสถียร' },
-              { id: 'gemini-1.5-flash', label: '1.5 Flash', badge: 'คลาสสิก' }
+              { id: 'gemini-2.0-flash', label: '2.0 Flash', badge: 'รุ่นแนะนำ' },
+              { id: 'gemini-1.5-flash', label: '1.5 Flash', badge: 'เร็ว/เสถียร' },
+              { id: 'gemini-1.5-pro', label: '1.5 Pro', badge: 'แม่นยำสูง' }
             ].map(m => (
               <button
                 key={m.id}

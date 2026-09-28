@@ -150,4 +150,26 @@
   - Supabase Cloud, storageService, และ sommai_bot มีข้อมูลไก่ทอดแมคตรงกัน 100%
   - บอท `task-1127` กำลังทำงานสด (LIVE) เรียบร้อย
 
+---
+
+### ครั้งที่: #007
+* **วัน-เวลา:** 2026-09-28 13:58:00 (+07:00)
+* **บริบทและคำสั่งของนายท่าน:**
+  - นายท่านสั่งปรับสลับการอ่านภาพบิล/สลิปมาใช้ Gemini Vision AI แทน Local OCR: *"เอาเป็ฯgemini แทนละกัน ไมไ่น่าเปลืองโทเคนหละ"*
+* **รายการไฟล์ที่แก้ไข/สร้าง:**
+  1. `src/services/geminiVisionService.js`:
+     - ปรับโมเดลหลักเป็น `gemini-2.0-flash` (มาตรฐานความเร็วสูง ความแม่นยำสูง และประหยัดโทเคน)
+  2. `src/components/GeminiSettingsModal.jsx`:
+     - อัปเดตตัวเลือกโมเดลในหน้าต่าง Modal เป็น `gemini-2.0-flash` (แนะนำ), `gemini-1.5-flash`, `gemini-1.5-pro`
+  3. `src/bot/sommai_bot.mjs`:
+     - อัปเกรด Sommai Telegram Bot เป็น **v2.6 (Gemini Vision AI Engine)**
+     - รองรับคำสั่ง `/setkey AIzaSy...` หรือส่งคีย์ตรงในแชทเพื่อบันทึกลง Supabase Cloud อัตโนมัติ
+     - ปรับลำดับโมเดลเป็น `gemini-2.0-flash` ➔ `gemini-1.5-flash` ➔ `gemini-2.0-flash-lite` พร้อม Local OCR Fallback
+     - รัน Daemon `task-1284` ทำงานสดพร้อมบริการ
+  4. `WORKLOG.md`: บันทึกประวัติการทำงานครั้งที่ #007
+* **ผลลัพธ์การตรวจสอบ:**
+  - `npm run build` ผ่านสมบูรณ์ (2.39s)
+  - Bot Daemon `task-1284` เปิดทำงานสด (LIVE) พร้อมรองรับ Gemini Vision และตอบสนองคำสั่งทันที
+
+
 
