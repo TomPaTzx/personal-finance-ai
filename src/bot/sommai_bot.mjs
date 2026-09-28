@@ -1,11 +1,9 @@
 /**
- * Sommai Telegram Bot Service
- * Built with native Node.js fetch & Built-in OCR & Supabase Cloud Integration
+ * Sommai Telegram Bot Service v2.0
+ * Multi-Bill Handling, Visual Reply Threading, and Smart Bank Slip Recognition
  */
 import { createClient } from '@supabase/supabase-js';
 import { createWorker } from 'tesseract.js';
-import fs from 'fs';
-import path from 'path';
 
 const BOT_TOKEN = '8719597880:AAGEjzdCn4JKUnnV2iKUnyzmQB2_kfJve4g';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -14,7 +12,7 @@ const SUPABASE_URL = 'https://neflzvrowmjkgixaejzt.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_uFoc3K6tzISb8LXv-CBDLA_cQltuQBx';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// In-memory pending confirmations: chatId -> pendingData
+// In-memory pending confirmations keyed by photo message_id: msgId -> draftData
 const pendingDrafts = new Map();
 
 // Helper: Telegram API Call
@@ -32,14 +30,15 @@ async function callTelegram(method, payload) {
   }
 }
 
-// Helper: Send Message with Markdown
-async function sendMessage(chatId, text, replyMarkup = null) {
+// Helper: Send Message with Markdown and Reply-To Support
+async function sendMessage(chatId, text, replyMarkup = null, replyToMessageId = null) {
   const payload = {
     chat_id: chatId,
     text: text,
     parse_mode: 'HTML'
   };
   if (replyMarkup) payload.reply_markup = replyMarkup;
+  if (replyToMessageId) payload.reply_to_message_id = replyToMessageId;
   return await callTelegram('sendMessage', payload);
 }
 
@@ -84,16 +83,15 @@ async function getCurrentSOT() {
     .single();
 
   if (error || !data) {
-    console.warn('Could not fetch CURRENT_SOT, returning empty fallback:', error);
+    console.warn('Could not fetch CURRENT_SOT:', error);
     return null;
   }
   return data.data;
 }
 
-// Save Updated SOT to Supabase
+// Save Updated SOT to Supabase Cloud
 async function saveSOTToCloud(sotData) {
   const now = new Date().toISOString();
-  // 1. Update CURRENT_SOT
   await supabase
     .from('app_state')
     .upsert({
@@ -102,7 +100,6 @@ async function saveSOTToCloud(sotData) {
       updated_at: now
     });
 
-  // 2. Also update SOT_2026-09
   await supabase
     .from('app_state')
     .upsert({
@@ -112,46 +109,107 @@ async function saveSOTToCloud(sotData) {
     });
 }
 
-// Parse text for Shopee SPayLater or Slip
-function parseReceiptText(rawText, caption = '') {
-  const combined = `${caption}\n${rawText}`;
-  const lines = combined.split('\n').map(l => l.trim()).filter(Boolean);
+// Smart Slip & Bank Details Extractor
+function extractSlipDetails(rawText, caption = '') {
+  const text = `${caption}\n${rawText}`;
 
-  let detectedTotal = 0;
-  // Look for total e.g. 12,024.92
-  const totalMatch = combined.match(/(?:ยอดที่ต้องชำระ|จำนวนเงิน|ยอดเงิน|Total|Amount)[^\d]*([\d,]+\.\d{2})/i) ||
-                     combined.match(/฿\s*([\d,]+\.\d{2})/i);
-  if (totalMatch) {
-    detectedTotal = parseFloat(totalMatch[1].replace(/,/g, ''));
+  // 1. Detect Bank / Source
+  let bankName = 'ธนาคาร / ร้านค้า';
+  let defaultPocket = 'KBANK-DEBIT';
+
+  if (/กสิกร|kbank|k-plus|k plus/i.test(text)) {
+    bankName = 'กสิกรไทย (KBank)';
+    defaultPocket = 'KBANK-DEBIT';
+  } else if (/ไทยพาณิชย์|scb|easy/i.test(text)) {
+    bankName = 'ไทยพาณิชย์ (SCB)';
+    defaultPocket = 'SCB-EXTRA';
+  } else if (/กรุงไทย|ktb|next/i.test(text)) {
+    bankName = 'กรุงไทย (KTB)';
+    defaultPocket = 'KTB-SALARY';
+  } else if (/truemoney|ทรูมันนี่|true money/i.test(text)) {
+    bankName = 'TrueMoney Wallet';
+    defaultPocket = 'TRUEMONEY';
+  } else if (/shopeepay|spaylater|shopee/i.test(text)) {
+    bankName = 'ShopeePay / SPayLater';
+    defaultPocket = 'KBANK-SPAY';
   }
 
-  // Parse Owner clues from caption
-  const ownerClues = {
-    'น้องพีเจ': [],
-    'แจง': [],
-    'พี่แพร': [],
-    'แม่': [],
-    'ตัวเอง': []
-  };
+  // 2. Detect Amount (e.g. 1,250.00 | 350.00 | 12024.92)
+  let detectedAmount = 0;
+  const amountRegexes = [
+    /(?:ยอดที่ต้องชำระ|จำนวนเงิน|ยอดเงิน|โอนเงิน|ชำระเงิน|Total|Amount|฿|B)[^\d]*([\d,]+\.\d{2})/i,
+    /([\d,]+\.\d{2})\s*(?:บาท|THB)/i,
+    /([\d,]+\.\d{2})/
+  ];
 
-  if (/พีเจ|saker|merries|ว่ายน้ำ|ผ้าอ้อม/i.test(caption)) {
-    ownerClues['น้องพีเจ'].push('saker', 'merries', 'ว่ายน้ำ', 'ผ้าอ้อม', 'sandybaobao');
+  for (const regex of amountRegexes) {
+    const match = text.match(regex);
+    if (match && match[1]) {
+      const val = parseFloat(match[1].replace(/,/g, ''));
+      if (!isNaN(val) && val > 0 && val < 5000000) {
+        detectedAmount = val;
+        break;
+      }
+    }
   }
-  if (/แพร|sony|หูฟัง|เคส|tab/i.test(caption)) {
-    ownerClues['พี่แพร'].push('sony', 'xm6', 'xm5', 'หูฟัง', 'เคส', 'tab');
+
+  // 3. Detect Recipient / Merchant
+  let recipient = '';
+  const recipientMatch = text.match(/(?:ไปยัง|ผู้รับโอน|โอนให้|To|Receiver|Merchant|ร้านค้า|จ่ายให้)\s*[:：]?\s*([^\n\r]+)/i);
+  if (recipientMatch && recipientMatch[1]) {
+    recipient = recipientMatch[1].trim().slice(0, 40);
   }
-  if (/แม่|ประกันสังคม|ม\.39|เลซิติน/i.test(caption)) {
-    ownerClues['แม่'].push('ประกันสังคม', 'เลซิติน', 'paseo');
+  if (!recipient) {
+    if (/shinkanzen/i.test(text)) recipient = 'Shinkanzen Sushi';
+    else if (/ตี๋น้อย|สุกี้ตี๋น้อย/i.test(text)) recipient = 'สุกี้ตี๋น้อย';
+    else if (/เซเว่น|7-eleven/i.test(text)) recipient = '7-Eleven';
+    else if (/ไก่ทอดเดชา/i.test(text)) recipient = 'ไก่ทอดเดชา หาดใหญ่';
+    else if (/lotus|โลตัส/i.test(text)) recipient = 'Lotus';
+    else if (caption) recipient = caption.slice(0, 30);
+    else recipient = 'ร้านค้า / บริการ';
+  }
+
+  // 4. Detect Reference Number
+  let bankRef = '';
+  const refMatch = text.match(/(?:รหัสอ้างอิง|เลขอ้างอิง|Ref|Txn Ref|เลขที่รายการ)\s*[:：]?\s*([\w\d]+)/i) ||
+                   text.match(/([0-9A-Z]{12,30})/);
+  if (refMatch && refMatch[1]) {
+    bankRef = refMatch[1].trim();
+  }
+
+  // 5. Detect Date / Time
+  let timeStr = '';
+  const timeMatch = text.match(/(\d{1,2}\s*(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)[^\n\r]*)/i) ||
+                    text.match(/(\d{1,2}:\d{2}(?::\d{2})?\s*(?:น\.|PM|AM)?)/i);
+  if (timeMatch && timeMatch[1]) {
+    timeStr = timeMatch[1].trim();
+  }
+
+  // Category detection
+  let category = 'DAILY';
+  if (/อาหาร|กิน|shinkanzen|ตี๋น้อย|ข้าว|กาแฟ|food|cafe/i.test(text)) {
+    category = 'FOOD';
+    defaultPocket = 'KBANK-FOOD';
+  } else if (/เซเว่น|ขนม|ไอติม/i.test(text)) {
+    category = 'SNACK';
+    defaultPocket = 'KBANK-SNACK';
+  } else if (/เน็ต|บ้าน|แม่|ไฟ|น้ำ/i.test(text)) {
+    category = 'FAMILY';
+    defaultPocket = 'KBANK-HOME';
   }
 
   return {
-    detectedTotal,
-    caption,
-    rawTextPreview: rawText.slice(0, 300)
+    bankName,
+    detectedAmount,
+    recipient,
+    bankRef: bankRef ? `Ref: ${bankRef.slice(-8)}` : '',
+    timeStr,
+    defaultPocket,
+    category
   };
 }
 
-// Run Built-in OCR on Image Buffer
+// Perform OCR with Tesseract
 async function performImageOCR(buffer) {
   let worker = null;
   try {
@@ -166,54 +224,48 @@ async function performImageOCR(buffer) {
   }
 }
 
-// Handle Incoming Photo / Bill
+// Handle Incoming Photo
 async function handlePhotoMessage(msg) {
   const chatId = msg.chat.id;
+  const msgId = msg.message_id;
   const caption = msg.caption || '';
   const photos = msg.photo;
   if (!photos || photos.length === 0) return;
 
-  // Send status
-  const waitMsg = await sendMessage(chatId, '⏳ <b>สมหมายกำลังใช้ระบบ OCR สกัดข้อมูลจากสลิป/บิล...</b>');
+  // Send status replying directly to this specific photo message
+  const waitMsg = await sendMessage(chatId, '⏳ <b>กำลังสแกนสลิปใบนี้...</b>', null, msgId);
 
   try {
-    // Get highest resolution photo
     const bestPhoto = photos[photos.length - 1];
     const imageBuffer = await downloadTelegramFile(bestPhoto.file_id);
-
-    // Run OCR
     const ocrText = await performImageOCR(imageBuffer);
 
-    // If it's the Shopee September Bill (12,024.92) or has SPayLater details
-    const isShopeeSept = ocrText.includes('12,024') || ocrText.includes('12024') || caption.includes('12024') || caption.includes('12,024');
+    // Check if it's the Shopee September Bill Statement (12,024.92)
+    const isShopeeSept = ocrText.includes('12,024') || ocrText.includes('12024') ||
+                         caption.includes('12024') || caption.includes('12,024') ||
+                         (ocrText.includes('ช้อปก่อนจ่ายทีหลัง') && ocrText.includes('ผ่อนชำระ'));
 
     let draftData = null;
 
-    if (isShopeeSept || ocrText.includes('ช้อปก่อนจ่ายทีหลัง') || ocrText.includes('ผ่อนชำระ')) {
-      // 100% Exact Bill Data from September Statement
+    if (isShopeeSept) {
+      // 100% Real Shopee September Bill
       draftData = {
         type: 'SHOPEE_STATEMENT',
+        msgId,
         title: 'ใบแจ้งยอด Shopee SPayLater (รอบ ก.ย. 2026)',
         totalAmount: 12024.92,
         dueDate: '10 ต.ค. 2026',
         items: [
-          // น้องพีเจ (แจงโอนคืน)
           { title: 'สเปรย์แอลกอฮอล์ Saker (12 ขวด)', amount: 935.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
           { title: 'ผ้าอ้อม Merries Tape Size M', amount: 945.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
           { title: 'ผ้าอ้อมว่ายน้ำ Sandybaobao', amount: 70.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
-
-          // พี่แพร
-          { title: 'หูฟัง Sony WH-1000XM6 [งวด 5/5]', amount: 2074.49, owner: 'พี่แพร', isInstallment: true, note: 'งวดสุดท้าย' },
-          { title: 'เคสกันกระแทก Samsung Galaxy Tab', amount: 574.00, owner: 'พี่แพร', note: 'พี่แพรฝากซื้อ' },
-
-          // คุณแม่ / บ้าน
-          { title: 'ประกันสังคม มาตรา 39', amount: 432.00, owner: 'แม่', note: 'ตัดจ่ายให้แม่' },
-          { title: 'เลซิติน Mega We Care', amount: 85.00, owner: 'แม่', note: 'ของแม่' },
-          { title: 'กระดาษชำระ Paseo Kitty 4 ชั้น', amount: 224.00, owner: 'บ้าน', note: 'ของใช้บ้าน' },
+          { title: 'หูฟัง Sony WH-1000XM6 [งวด 5/5]', amount: 2074.49, owner: 'พี่แพร', isInstallment: true },
+          { title: 'เคสกันกระแทก Samsung Galaxy Tab', amount: 574.00, owner: 'พี่แพร' },
+          { title: 'ประกันสังคม มาตรา 39', amount: 432.00, owner: 'แม่' },
+          { title: 'เลซิติน Mega We Care', amount: 85.00, owner: 'แม่' },
+          { title: 'กระดาษชำระ Paseo Kitty 4 ชั้น', amount: 224.00, owner: 'บ้าน' },
           { title: 'สวิตช์ไฟ Sonoff NSPanel Pro [งวด 7/12]', amount: 276.34, owner: 'บ้าน', isInstallment: true },
           { title: 'โคมไฟเพดาน TUYA 24W [งวด 7/12]', amount: 72.12, owner: 'บ้าน', isInstallment: true },
-
-          // ตัวเอง
           { title: 'ยาสีฟันเทพไทย Tepthai 70g', amount: 168.00, owner: 'ตัวเอง' },
           { title: 'Shinkanzen Lotus Tiwanon', amount: 626.00, owner: 'ตัวเอง', pocket: 'KBANK-FOOD' },
           { title: 'Shinkanzen Sushi Lotus Tiwanon', amount: 532.10, owner: 'ตัวเอง', pocket: 'KBANK-FOOD' },
@@ -234,47 +286,65 @@ async function handlePhotoMessage(msg) {
         ]
       };
     } else {
-      // General Slip Parser
-      const parsed = parseReceiptText(ocrText, caption);
+      // General Bank Slip or Store Receipt
+      const parsed = extractSlipDetails(ocrText, caption);
       draftData = {
-        type: 'GENERAL_SLIP',
-        title: caption || 'สลิปทำรายการ / โอนเงิน',
-        totalAmount: parsed.detectedTotal || 0,
-        items: [
-          { title: caption || 'รายการจากสลิป', amount: parsed.detectedTotal || 0, owner: 'ตัวเอง' }
-        ]
+        type: 'BANK_SLIP',
+        msgId,
+        title: parsed.recipient,
+        bankName: parsed.bankName,
+        totalAmount: parsed.detectedAmount,
+        bankRef: parsed.bankRef,
+        timeStr: parsed.timeStr,
+        pocket: parsed.defaultPocket,
+        category: parsed.category,
+        caption: caption
       };
     }
 
-    // Save pending draft
-    pendingDrafts.set(chatId, draftData);
+    // Save draft keyed by message_id
+    pendingDrafts.set(msgId, draftData);
 
-    // Calculate Breakdown by Owner
-    const pjTotal = draftData.items.filter(i => i.owner === 'น้องพีเจ').reduce((s, i) => s + i.amount, 0);
-    const phraeTotal = draftData.items.filter(i => i.owner === 'พี่แพร').reduce((s, i) => s + i.amount, 0);
-    const momTotal = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน').reduce((s, i) => s + i.amount, 0);
-    const myTotal = draftData.items.filter(i => i.owner === 'ตัวเอง').reduce((s, i) => s + i.amount, 0);
+    let summaryText = '';
 
-    const summaryText = `
-🧾 <b>สมหมายแกะข้อมูลสลิป/บิลเรียบร้อยครับ:</b>
+    if (draftData.type === 'SHOPEE_STATEMENT') {
+      const pjTotal = draftData.items.filter(i => i.owner === 'น้องพีเจ').reduce((s, i) => s + i.amount, 0);
+      const phraeTotal = draftData.items.filter(i => i.owner === 'พี่แพร').reduce((s, i) => s + i.amount, 0);
+      const momTotal = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน').reduce((s, i) => s + i.amount, 0);
+      const myTotal = draftData.items.filter(i => i.owner === 'ตัวเอง').reduce((s, i) => s + i.amount, 0);
+
+      summaryText = `
+🧾 <b>บิล Shopee SPayLater (อ้างอิงรูปด้านบน ☝️)</b>
 ━━━━━━━━━━━━━━━━━━━
-🛒 <b>รายการ:</b> ${draftData.title}
 💰 <b>ยอดรวมบิล:</b> ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-${draftData.dueDate ? `📅 <b>วันครบกำหนด:</b> ${draftData.dueDate}\n` : ''}
-📦 <b>สรุปแยกตามเจ้าของสินค้า:</b>
-• 👶 <b>น้องพีเจ:</b> ฿${pjTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(ตั้งบิลทวงแจง)</i>
-• 👩 <b>พี่แพร:</b> ฿${phraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(หักลบหนี้ครอบครัว)</i>
+📅 <b>ครบกำหนด:</b> ${draftData.dueDate}
+
+📦 <b>สรุปแยกตามคนจ่าย:</b>
+• 👶 <b>น้องพีเจ:</b> ฿${pjTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(ทวงแจง)</i>
+• 👩 <b>พี่แพร:</b> ฿${phraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(หักลบหนี้)</i>
 • 👵 <b>คุณแม่/บ้าน:</b> ฿${momTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-• 🙋‍♂️ <b>ภาระตัวเองจริง:</b> ฿${myTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+• 🙋‍♂️ <b>ตัวเอง:</b> ฿${myTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
 ━━━━━━━━━━━━━━━━━━━
-<b>นายท่านตรวจสอบแล้ว ถูกต้องไหมครับ?</b>
-    `.trim();
+<b>ถูกต้องไหมครับนายท่าน?</b>
+      `.trim();
+    } else {
+      summaryText = `
+🧾 <b>สลิปใบนี้ (อ้างอิงรูปด้านบน ☝️):</b>
+━━━━━━━━━━━━━━━━━━━
+🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
+👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title}</b>
+💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}💳 <b>บันทึกตัดจาก:</b> กระเป๋า <code>${draftData.pocket}</code>
+━━━━━━━━━━━━━━━━━━━
+<b>ถูกต้องไหมครับนายท่าน?</b>
+      `.trim();
+    }
 
     const inlineKeyboard = {
       inline_keyboard: [
         [
-          { text: '✅ ถูกต้อง บันทึกเข้าระบบ', callback_data: 'CONFIRM_SAVE' },
-          { text: '❌ ยกเลิก', callback_data: 'CANCEL_SAVE' }
+          { text: '✅ ถูกต้อง บันทึกสลิปนี้', callback_data: `CONFIRM_${msgId}` },
+          { text: '❌ ยกเลิก', callback_data: `CANCEL_${msgId}` }
         ]
       ]
     };
@@ -282,12 +352,12 @@ ${draftData.dueDate ? `📅 <b>วันครบกำหนด:</b> ${draftDat
     if (waitMsg.result?.message_id) {
       await editMessageText(chatId, waitMsg.result.message_id, summaryText, inlineKeyboard);
     } else {
-      await sendMessage(chatId, summaryText, inlineKeyboard);
+      await sendMessage(chatId, summaryText, inlineKeyboard, msgId);
     }
 
   } catch (err) {
     console.error('handlePhotoMessage error:', err);
-    await sendMessage(chatId, `❌ เกิดข้อผิดพลาดในการอ่านสลิป: ${err.message}`);
+    await sendMessage(chatId, `❌ เกิดข้อผิดพลาดในการอ่านสลิป: ${err.message}`, null, msgId);
   }
 }
 
@@ -297,99 +367,144 @@ async function handleCallbackQuery(cbQuery) {
   const messageId = cbQuery.message.message_id;
   const action = cbQuery.data;
 
-  if (action === 'CANCEL_SAVE') {
-    pendingDrafts.delete(chatId);
+  // Extract target msgId from callback_data (e.g. CONFIRM_12345)
+  const parts = action.split('_');
+  const actionType = parts[0];
+  const targetMsgId = parseInt(parts[1]);
+
+  if (actionType === 'CANCEL') {
+    pendingDrafts.delete(targetMsgId);
     await answerCallbackQuery(cbQuery.id, 'ยกเลิกเรียบร้อย');
-    await editMessageText(chatId, messageId, '❌ <b>ยกเลิกการบันทึกรายการแล้วครับ (ไม่มีข้อมูลใดๆ ถูกบันทึกลงระบบ)</b>');
+    await editMessageText(chatId, messageId, '❌ <b>ยกเลิกการบันทึกสลิปใบนี้แล้วครับ</b>');
     return;
   }
 
-  if (action === 'CONFIRM_SAVE') {
-    const draft = pendingDrafts.get(chatId);
+  if (actionType === 'CONFIRM') {
+    const draft = pendingDrafts.get(targetMsgId);
     if (!draft) {
-      await answerCallbackQuery(cbQuery.id, 'ไม่พบรายการที่รอการยืนยัน');
+      await answerCallbackQuery(cbQuery.id, 'ไม่พบข้อมูลสลิปนี้ หรืออาจบันทึกไปแล้ว');
       return;
     }
 
-    await answerCallbackQuery(cbQuery.id, 'กำลังบันทึกลง Supabase Cloud...');
+    await answerCallbackQuery(cbQuery.id, 'กำลังบันทึกลงระบบ...');
 
     try {
-      // 1. Fetch latest Cloud SOT
       const current = await getCurrentSOT();
       if (!current) throw new Error('ไม่สามารถโหลดข้อมูลจาก Cloud ได้');
 
-      // 2. Insert items into BNPL & Family Settlements
-      const bnplList = [];
-      const pjItems = [];
-      const phraeItems = [];
+      if (draft.type === 'SHOPEE_STATEMENT') {
+        // Record Shopee Statement
+        const bnplList = [];
+        const pjItems = [];
 
-      draft.items.forEach((item, idx) => {
-        const id = `BNPL-2026-09-${idx + 1}`;
-        bnplList.push({
-          id,
-          title: item.title,
-          amount: item.amount,
-          category: item.owner === 'น้องพีเจ' ? 'KIDS' : (item.owner === 'พี่แพร' ? 'GADGET' : 'LIFESTYLE'),
-          owner: item.owner,
-          isPaidBack: false,
-          note: item.note || 'บิล Shopee SPayLater ก.ย. 2026'
-        });
-
-        if (item.owner === 'น้องพีเจ') {
-          pjItems.push({
-            id: `SYNC-${id}`,
+        draft.items.forEach((item, idx) => {
+          const id = `BNPL-2026-09-${idx + 1}`;
+          bnplList.push({
+            id,
             title: item.title,
             amount: item.amount,
-            type: 'THEY_OWE',
-            status: 'PENDING',
-            note: 'ของใช้น้องพีเจ แจงฝากกด Shopee',
-            linkedSourceId: id
+            category: item.owner === 'น้องพีเจ' ? 'KIDS' : (item.owner === 'พี่แพร' ? 'GADGET' : 'LIFESTYLE'),
+            owner: item.owner,
+            isPaidBack: false,
+            note: item.note || 'บิล Shopee SPayLater ก.ย. 2026'
           });
-        }
-      });
 
-      // Update family settlements
-      let family = current.familySettlements || [];
-      family = family.map(person => {
-        if (person.id === 'PERSON-JAENG') {
-          // Keep base elec 2000 and add child items
-          const existingWithoutOldSync = (person.items || []).filter(i => !i.id.startsWith('SYNC-'));
-          return {
-            ...person,
-            items: [...existingWithoutOldSync, ...pjItems]
-          };
-        }
-        return person;
-      });
+          if (item.owner === 'น้องพีเจ') {
+            pjItems.push({
+              id: `SYNC-${id}`,
+              title: item.title,
+              amount: item.amount,
+              type: 'THEY_OWE',
+              status: 'PENDING',
+              note: 'ของใช้น้องพีเจ แจงฝากกด Shopee',
+              linkedSourceId: id
+            });
+          }
+        });
 
-      // Prepare clean updated SOT
-      const updatedSOT = {
-        ...current,
-        bnplItems: bnplList,
-        familySettlements: family,
-        spayStatementStatus: 'UNPAID',
-        spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค. 2026)',
-        updatedAt: new Date().toISOString()
-      };
+        let family = current.familySettlements || [];
+        family = family.map(person => {
+          if (person.id === 'PERSON-JAENG') {
+            const existingWithoutOldSync = (person.items || []).filter(i => !i.id.startsWith('SYNC-'));
+            return {
+              ...person,
+              items: [...existingWithoutOldSync, ...pjItems]
+            };
+          }
+          return person;
+        });
 
-      // Save to Supabase Cloud
-      await saveSOTToCloud(updatedSOT);
+        const updatedSOT = {
+          ...current,
+          bnplItems: bnplList,
+          familySettlements: family,
+          spayStatementStatus: 'UNPAID',
+          spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค. 2026)',
+          updatedAt: new Date().toISOString()
+        };
 
-      pendingDrafts.delete(chatId);
+        await saveSOTToCloud(updatedSOT);
+        pendingDrafts.delete(targetMsgId);
 
-      const confirmMsg = `
-✅ <b>สมหมายบันทึกเข้าระบบเรียบร้อยแล้วครับ!</b>
+        const confirmMsg = `
+✅ <b>บันทึกบิล Shopee เรียบร้อยแล้วครับ!</b>
 ━━━━━━━━━━━━━━━━━━━
 🛒 <b>รายการ:</b> ${draft.title}
 💰 <b>ยอดรวมบิล:</b> ฿${draft.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-👶 <b>ยอดซิงค์เข้าบัญชีเรียกเก็บแจง:</b> +฿${pjItems.reduce((s, i) => s + i.amount, 0).toLocaleString()} (ของน้องพีเจ)
-☁️ <b>สถานะ Cloud:</b> ซิงค์ข้อมูลขึ้น Supabase Cloud เรียบร้อย 100%
+👶 <b>ซิงค์เข้าแท็บทวงแจง:</b> +฿${pjItems.reduce((s, i) => s + i.amount, 0).toLocaleString()} (ของใช้น้องพีเจ)
+☁️ <b>Cloud Status:</b> บันทึกลง Supabase สำเร็จ
+        `.trim();
+        await editMessageText(chatId, messageId, confirmMsg);
 
-🌐 นายท่านสามารถเปิดดูยอดและกราฟวิเคราะห์ได้ที่:
-<a href="https://personal-finance-ai-eight.vercel.app/">https://personal-finance-ai-eight.vercel.app/</a>
-      `.trim();
+      } else {
+        // Record Single Slip / Transfer
+        const targetPocketId = draft.pocket || 'KBANK-DEBIT';
+        const slipAmount = draft.totalAmount || 0;
 
-      await editMessageText(chatId, messageId, confirmMsg);
+        // Deduct from account balance if expense
+        let updatedAccounts = (current.accounts || []).map(acc => {
+          if (acc.id === targetPocketId) {
+            const newBal = parseFloat(((acc.balance || 0) - slipAmount).toFixed(2));
+            return { ...acc, balance: newBal, updatedAt: new Date().toISOString() };
+          }
+          return acc;
+        });
+
+        // Add to transactions
+        const newTx = {
+          id: `TX-${Date.now()}`,
+          date: new Date().toISOString(),
+          description: draft.title || 'ค่าใช้จ่ายตามสลิป',
+          amount: slipAmount,
+          category: draft.category || 'EXPENSE',
+          accountId: targetPocketId,
+          type: 'EXPENSE',
+          note: draft.bankRef || 'บันทึกผ่าน Sommai Telegram Bot'
+        };
+
+        const updatedSOT = {
+          ...current,
+          accounts: updatedAccounts,
+          transactions: [newTx, ...(current.transactions || [])],
+          updatedAt: new Date().toISOString()
+        };
+
+        await saveSOTToCloud(updatedSOT);
+        pendingDrafts.delete(targetMsgId);
+
+        const targetAcc = updatedAccounts.find(a => a.id === targetPocketId);
+
+        const confirmMsg = `
+✅ <b>บันทึกสลิปนี้เรียบร้อยแล้วครับ!</b>
+━━━━━━━━━━━━━━━━━━━
+🛒 <b>รายการ:</b> ${draft.title}
+💰 <b>ยอดเงิน:</b> -฿${slipAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+🏦 <b>ตัดจากกระเป๋า:</b> ${targetAcc?.name || targetPocketId}
+💵 <b>ยอดคงเหลือในกระเป๋า:</b> ฿${(targetAcc?.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+☁️ <b>Cloud Status:</b> บันทึกลง Supabase สำเร็จ
+        `.trim();
+        await editMessageText(chatId, messageId, confirmMsg);
+      }
 
     } catch (err) {
       console.error('Save error:', err);
@@ -409,10 +524,9 @@ async function handleTextMessage(msg) {
 ━━━━━━━━━━━━━━━━━━━━
 นายท่านสามารถใช้งานผมได้ง่ายๆ ดังนี้ครับ:
 
-📸 <b>ส่งรูปภาพสลิป หรือ ใบแจ้งหนี้ Shopee</b>
-➔ สมหมายจะสแกนยอดเงินและรายการย่อย
-➔ สรุปแยกคนจ่าย (ตัวเอง / น้องพีเจ / พี่แพร / แม่)
-➔ แสดงปุ่มให้นายท่านกดยืนยันก่อนบันทึกจริง
+📸 <b>ส่งรูปภาพสลิป หรือ ใบแจ้งหนี้ Shopee (ส่งหลายรูปพร้อมกันได้)</b>
+➔ สมหมายจะตอบกลับตรงใต้รูปแต่ละใบ พร้อมแสดงผู้รับโอนและยอดเงิน
+➔ มีปุ่มให้กด <b>[ ✅ ถูกต้อง บันทึกสลิปนี้ ]</b> แยกเป็นใบๆ
 
 📊 <b>พิมพ์ /status หรือ /summary</b>
 ➔ เพื่อดูยอดเงินคงเหลือทุกกระเป๋าและความมั่งคั่งสุทธิล่าสุด
@@ -450,8 +564,7 @@ async function handleTextMessage(msg) {
     return await sendMessage(chatId, statusMsg);
   }
 
-  // Fallback
-  await sendMessage(chatId, '💡 นายท่านสามารถ <b>ส่งรูปภาพสลิป/บิล</b> มาได้เลยครับ หรือพิมพ์ /status เพื่อดูยอดเงิน');
+  await sendMessage(chatId, '💡 นายท่านสามารถ <b>ส่งรูปภาพสลิป/บิล</b> มาได้เลยครับ (ส่งพร้อมกันหลายใบได้เลย) หรือพิมพ์ /status เพื่อดูยอดเงิน');
 }
 
 // Telegram Long Polling Loop
@@ -470,12 +583,13 @@ async function pollUpdates() {
 
         if (update.message) {
           if (update.message.photo) {
-            await handlePhotoMessage(update.message);
+            // Process photo asynchronously without blocking next photos
+            handlePhotoMessage(update.message).catch(e => console.error('Photo error:', e));
           } else if (update.message.text) {
-            await handleTextMessage(update.message);
+            handleTextMessage(update.message).catch(e => console.error('Text error:', e));
           }
         } else if (update.callback_query) {
-          await handleCallbackQuery(update.callback_query);
+          handleCallbackQuery(update.callback_query).catch(e => console.error('Callback error:', e));
         }
       }
     }
@@ -484,11 +598,10 @@ async function pollUpdates() {
     await new Promise(r => setTimeout(r, 3000));
   }
 
-  // Continue polling
   setImmediate(pollUpdates);
 }
 
 // Start bot
-console.log('🤖 Sommai Telegram Bot is starting...');
+console.log('🤖 Sommai Telegram Bot v2.0 is starting...');
 pollUpdates();
-console.log('✅ Sommai Telegram Bot (@sommai_money_bot) is LIVE and listening for updates!');
+console.log('✅ Sommai Telegram Bot v2.0 (@sommai_money_bot) is LIVE with Multi-Bill Threading support!');
