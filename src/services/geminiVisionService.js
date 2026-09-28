@@ -1,9 +1,9 @@
 // Gemini Multimodal Vision Service for Sommai Money
-// Supports gemini-2.0-flash, gemini-1.5-flash, or custom models
+// Supports gemini-2.5-flash, gemini-flash-latest, gemini-3.8-flash, or custom models
 
 const GEMINI_API_KEY_STORAGE = 'SOMMAI_GEMINI_API_KEY';
 const GEMINI_MODEL_STORAGE = 'SOMMAI_GEMINI_MODEL';
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 export const getStoredGeminiApiKey = () => {
   return localStorage.getItem(GEMINI_API_KEY_STORAGE) || '';
@@ -179,11 +179,11 @@ export async function analyzeSlipWithGeminiVision(imageFile, context = {}) {
       data: parsed
     };
   } catch (err) {
-    // If the error might be an unsupported model, try fallback to gemini-2.0-flash or gemini-1.5-flash
-    if (model !== 'gemini-2.0-flash' && model !== 'gemini-1.5-flash') {
-      console.warn(`Model ${model} failed, attempting fallback to gemini-2.0-flash...`, err);
+    // If the error might be an unsupported model, try fallback to gemini-flash-latest or gemini-3.8-flash
+    if (model !== 'gemini-flash-latest' && model !== 'gemini-3.8-flash') {
+      console.warn(`Model ${model} failed, attempting fallback to gemini-flash-latest...`, err);
       try {
-        const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
         const fallbackRes = await fetch(fallbackUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -195,7 +195,7 @@ export async function analyzeSlipWithGeminiVision(imageFile, context = {}) {
           if (fallbackText) {
             return {
               success: true,
-              modelUsed: 'gemini-2.0-flash (Fallback)',
+              modelUsed: 'gemini-flash-latest (Fallback)',
               data: JSON.parse(fallbackText)
             };
           }

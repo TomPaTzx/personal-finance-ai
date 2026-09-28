@@ -171,5 +171,28 @@
   - `npm run build` ผ่านสมบูรณ์ (2.39s)
   - Bot Daemon `task-1284` เปิดทำงานสด (LIVE) พร้อมรองรับ Gemini Vision และตอบสนองคำสั่งทันที
 
+---
+
+### ครั้งที่: #008
+* **วัน-เวลา:** 2026-09-28 14:31:00 (+07:00)
+* **บริบทและคำสั่งของนายท่าน:**
+  - นายท่านส่งมอบ Google Gemini API Key เพื่อเปิดใช้งานสมองกล AI Vision: `AIzaSyDB6-...`
+* **รายการไฟล์ที่แก้ไข/สร้าง:**
+  1. `Supabase Cloud (CURRENT_SOT และ SOT_2026-09)`:
+     - บันทึก `geminiApiKey` และ `geminiModel = 'gemini-2.5-flash'` เข้าสู่ Cloud อย่างปลอดภัย
+  2. `.env` & `.gitignore`:
+     - เพิ่ม `.env` และ `.env.*` ลงใน `.gitignore` เพื่อความปลอดภัย
+     - สร้าง `.env` บันทึก `GEMINI_API_KEY` สำหรับการทำงานของ Backend Scripts
+  3. `src/bot/sommai_bot.mjs`:
+     - ทดสอบเรียก Google Generative AI API ผ่านโมเดล `gemini-2.5-flash` ได้ผลลัพธ์ Status 200 (Online)
+     - รีสตาร์ท Daemon บอทเป็น `task-1348` โดยบอทอ่านคีย์จาก Supabase Cloud อัตโนมัติ (`✨ Gemini Vision AI Key loaded from Supabase Cloud!`)
+  4. `Web App LocalStorage (Browser)`:
+     - ซิงค์คีย์ `SOMMAI_GEMINI_API_KEY` และโมเดล `gemini-2.5-flash` เข้าสู่ `localStorage` ของ https://personal-finance-ai-eight.vercel.app/ สำเร็จ
+  5. `WORKLOG.md`: บันทึกประวัติการทำงานครั้งที่ #008
+* **ผลลัพธ์การตรวจสอบ:**
+  - Gemini API Key ใช้งานได้จริง 100% ตอบสนองความเร็วระดับเสี้ยววินาที
+  - บอทโทรเลขและหน้าเว็บเปิดโหมด Gemini Multimodal Vision เต็มรูปแบบ
+
+
 
 
