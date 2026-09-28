@@ -1,6 +1,6 @@
 /**
- * Sommai Telegram Bot Service v2.2
- * Multi-Bill Threading + Interactive Owner/Pocket Pickers + Smart Dedup Guard
+ * Sommai Telegram Bot Service v2.4 (Ultimate Owner Control)
+ * Multi-Bill Threading + Prominent Top-Row Owner Editing Menus + Text Reply Matching
  */
 import { createClient } from '@supabase/supabase-js';
 import { createWorker } from 'tesseract.js';
@@ -14,6 +14,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // In-memory pending confirmations: msgId -> draftData
 const pendingDrafts = new Map();
+// Keep track of latest draft per chat
+const lastDraftByChat = new Map();
 
 // Helper: Telegram API Call
 async function callTelegram(method, payload) {
@@ -30,7 +32,7 @@ async function callTelegram(method, payload) {
   }
 }
 
-// Helper: Send Message with Markdown and Reply-To Support
+// Helper: Send Message with HTML and Reply-To Support
 async function sendMessage(chatId, text, replyMarkup = null, replyToMessageId = null) {
   const payload = {
     chat_id: chatId,
@@ -193,12 +195,16 @@ function extractSlipDetails(rawText, caption = '') {
   }
 
   let detectedOwner = 'ตัวเอง';
-  if (/พีเจ|saker|merries|ลูก/i.test(caption)) detectedOwner = 'น้องพีเจ';
-  else if (/แพร|sony|หูฟัง/i.test(caption)) detectedOwner = 'พี่แพร';
-  else if (/แม่|ประกันสังคม/i.test(caption)) detectedOwner = 'แม่';
-  else if (/บ้าน/i.test(caption)) detectedOwner = 'บ้าน';
+  if (/พีเจ|saker|merries|ลูก|ผ้าอ้อม/i.test(caption) || /saker|merries|ผ้าอ้อม/i.test(text)) {
+    detectedOwner = 'น้องพีเจ';
+  } else if (/แพร|sony|หูฟัง|tab/i.test(caption) || /wh-1000xm|sony/i.test(text)) {
+    detectedOwner = 'พี่แพร';
+  } else if (/แม่|ประกันสังคม|เลซิติน/i.test(caption) || /มาตรา 39|ม\.39|เลซิติน/i.test(text)) {
+    detectedOwner = 'แม่';
+  } else if (/บ้าน|sonoff|tuya|nspanel/i.test(caption) || /sonoff|tuya/i.test(text)) {
+    detectedOwner = 'บ้าน';
+  }
 
-  // Generate Unique Dedup Key
   const dedupKey = bankRef 
     ? `REF_${bankRef.replace(/[^A-Za-z0-9]/g, '')}`
     : `SLIP_${Math.round(detectedAmount * 100)}_${recipient.replace(/\s+/g, '').slice(0, 10)}_${timeStr.replace(/\s+/g, '')}`;
@@ -231,56 +237,18 @@ async function performImageOCR(buffer) {
   }
 }
 
-// Check if draft is duplicate in SOT
-function checkIsDuplicate(draftData, sot) {
-  if (!sot) return false;
-
-  const scannedHashes = sot.scannedSlipHashes || [];
-  const transactions = sot.transactions || [];
-
+// Render Summary Text
+function renderDraftSummaryText(draftData) {
   if (draftData.type === 'SHOPEE_STATEMENT') {
-    // Check if September Shopee statement already recorded
-    const hasSeptBNPL = (sot.bnplItems || []).some(b => b.id?.startsWith('BNPL-2026-09-') || b.note?.includes('Shopee SPayLater ก.ย. 2026'));
-    if (hasSeptBNPL && sot.spayStatementCycle?.includes('ก.ย. 2026')) {
-      return true;
-    }
-  } else {
-    // Bank Slip duplicate check
-    if (draftData.dedupKey && scannedHashes.includes(draftData.dedupKey)) {
-      return true;
-    }
-    if (draftData.bankRef && transactions.some(t => t.note?.includes(draftData.bankRef) || t.bankRef === draftData.bankRef)) {
-      return true;
-    }
-    // Amount + Time match
-    if (draftData.totalAmount > 0 && draftData.timeStr) {
-      const match = transactions.some(t => t.amount === draftData.totalAmount && t.note?.includes(draftData.timeStr));
-      if (match) return true;
-    }
-  }
+    const pjItems = draftData.items.filter(i => i.owner === 'น้องพีเจ');
+    const phraeItems = draftData.items.filter(i => i.owner === 'พี่แพร');
+    const momItems = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน');
+    const myItems = draftData.items.filter(i => i.owner === 'ตัวเอง');
 
-  return false;
-}
-
-// Generate Summary Text for Draft
-function renderDraftSummaryText(draftData, isDuplicate = false) {
-  if (draftData.type === 'SHOPEE_STATEMENT') {
-    const pjTotal = draftData.items.filter(i => i.owner === 'น้องพีเจ').reduce((s, i) => s + i.amount, 0);
-    const phraeTotal = draftData.items.filter(i => i.owner === 'พี่แพร').reduce((s, i) => s + i.amount, 0);
-    const momTotal = draftData.items.filter(i => i.owner === 'แม่' || i.owner === 'บ้าน').reduce((s, i) => s + i.amount, 0);
-    const myTotal = draftData.items.filter(i => i.owner === 'ตัวเอง').reduce((s, i) => s + i.amount, 0);
-
-    if (isDuplicate) {
-      return `
-⚠️ <b>แจ้งเตือน: บิล Shopee รอบนี้ถูกบันทึกไปแล้ว! (บิลซ้ำ)</b>
-━━━━━━━━━━━━━━━━━━━
-🛒 <b>รายการ:</b> ${draftData.title}
-💰 <b>ยอดรวมบิล:</b> ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-📅 <b>ครบกำหนด:</b> ${draftData.dueDate}
-━━━━━━━━━━━━━━━━━━━
-<i>ระบบตรวจพบว่าบิล Shopee ยอด ฿12,024.92 รอบ ก.ย. 2026 มีอยู่ในระบบแล้ว เพื่อป้องกันยอดหนี้เบิ้ลซ้ำ สมหมายจึงแจ้งเตือนไว้ครับ</i>
-      `.trim();
-    }
+    const pjTotal = pjItems.reduce((s, i) => s + i.amount, 0);
+    const phraeTotal = phraeItems.reduce((s, i) => s + i.amount, 0);
+    const momTotal = momItems.reduce((s, i) => s + i.amount, 0);
+    const myTotal = myItems.reduce((s, i) => s + i.amount, 0);
 
     return `
 🧾 <b>บิล Shopee SPayLater (อ้างอิงรูปด้านบน ☝️)</b>
@@ -288,13 +256,13 @@ function renderDraftSummaryText(draftData, isDuplicate = false) {
 💰 <b>ยอดรวมบิล:</b> ฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
 📅 <b>ครบกำหนด:</b> ${draftData.dueDate}
 
-📦 <b>สรุปแยกตามคนจ่าย:</b>
-• 👶 <b>น้องพีเจ:</b> ฿${pjTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(ทวงแจง)</i>
-• 👩 <b>พี่แพร:</b> ฿${phraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(หักลบหนี้)</i>
-• 👵 <b>คุณแม่/บ้าน:</b> ฿${momTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-• 🙋‍♂️ <b>ตัวเอง:</b> ฿${myTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+📦 <b>สรุปยอดแยกตามคนซื้อ/คนจ่าย:</b>
+• 👶 <b>น้องพีเจ (${pjItems.length} รายการ):</b> ฿${pjTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(ทวงแจง)</i>
+• 👩 <b>พี่แพร (${phraeItems.length} รายการ):</b> ฿${phraeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <i>(หักลบหนี้)</i>
+• 👵 <b>คุณแม่/บ้าน (${momItems.length} รายการ):</b> ฿${momTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+• 🙋‍♂️ <b>ตัวเอง (${myItems.length} รายการ):</b> ฿${myTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
 ━━━━━━━━━━━━━━━━━━━
-<b>ถูกต้องไหมครับนายท่าน?</b>
+💡 <i>กดปุ่ม <b>"👤 แก้ไขคนซื้อ"</b> ด้านล่างเพื่อสลับคนจ่ายได้ทันที หรือพิมพ์ตอบกลับ เช่น "ของแจง"</i>
     `.trim();
   }
 
@@ -302,51 +270,31 @@ function renderDraftSummaryText(draftData, isDuplicate = false) {
   const ownerLabel = draftData.owner === 'น้องพีเจ' ? '👶 น้องพีเจ (แจงโอนคืน)' :
                      draftData.owner === 'พี่แพร' ? '👩 พี่แพร (หักลบหนี้)' :
                      draftData.owner === 'แม่' ? '👵 คุณแม่' :
-                     draftData.owner === 'บ้าน' ? '🏠 กองกลางบ้าน' : '🙋‍♂️ ตัวเอง';
+                     draftData.owner === 'บ้าน' ? '🏠 กองกลางบ้าน' : `🙋‍♂️ ${draftData.owner || 'ตัวเอง'}`;
 
-  if (isDuplicate) {
-    return `
-⚠️ <b>แจ้งเตือน: สลิปนี้มีบันทึกในระบบแล้ว! (สลิปซ้ำ)</b>
-━━━━━━━━━━━━━━━━━━━
-🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
-👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title}</b>
-💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
-${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}━━━━━━━━━━━━━━━━━━━
-<i>ระบบตรวจพบเลขอ้างอิงหรือยอดเงินซ้ำในประวัติ เพื่อป้องกันการตัดเงินซ้ำซ้อน สมหมายจึงระงับไว้ก่อนครับ</i>
-    `.trim();
-  }
+  const dupBadge = draftData.isDuplicate ? '⚠️ <b>ตรวจพบ: สลิปนี้อาจเคยบันทึกแล้วในระบบ</b>\n' : '';
 
   return `
 🧾 <b>สลิปใบนี้ (อ้างอิงรูปด้านบน ☝️):</b>
 ━━━━━━━━━━━━━━━━━━━
-🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
+${dupBadge}🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
 👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title}</b>
 💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
-${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}👥 <b>เจ้าของรายการ:</b> <b>${ownerLabel}</b>
+${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}👥 <b>คนซื้อ/เจ้าของ:</b> <b>${ownerLabel}</b>
 💳 <b>บันทึกตัดจาก:</b> กระเป๋า <code>${draftData.pocket}</code>
 ━━━━━━━━━━━━━━━━━━━
-<b>นายท่านตรวจสอบแล้ว ถูกต้องไหมครับ?</b>
+💡 <i>กดปุ่ม <b>"👤 เปลี่ยนคนซื้อ"</b> ด้านล่าง หรือพิมพ์ตอบกลับ เช่น "ของแจง" ได้ทันที</i>
   `.trim();
 }
 
-// Generate Main Keyboard
-function renderMainKeyboard(msgId, draftData, isDuplicate = false) {
-  if (isDuplicate) {
-    return {
-      inline_keyboard: [
-        [
-          { text: '❌ ยกเลิก (สลิปซ้ำ ไม่บันทึก)', callback_data: `CANCEL_${msgId}` }
-        ],
-        [
-          { text: '⚠️ บังคับบันทึกซ้ำ (กรณีโอน 2 ครั้งจริง)', callback_data: `FORCE_CONFIRM_${msgId}` }
-        ]
-      ]
-    };
-  }
-
+// Main Interactive Keyboard (Always features Top-Row Owner Editing)
+function renderMainKeyboard(msgId, draftData) {
   if (draftData.type === 'SHOPEE_STATEMENT') {
     return {
       inline_keyboard: [
+        [
+          { text: '👤 ✏️ แก้ไขคนซื้อ / สลับเจ้าของสินค้า', callback_data: `SHOPEE_OWNER_MENU_${msgId}` }
+        ],
         [
           { text: '✅ ถูกต้อง บันทึกบิล Shopee นี้', callback_data: `CONFIRM_${msgId}` },
           { text: '❌ ยกเลิก', callback_data: `CANCEL_${msgId}` }
@@ -355,23 +303,27 @@ function renderMainKeyboard(msgId, draftData, isDuplicate = false) {
     };
   }
 
+  const confirmText = draftData.isDuplicate
+    ? `⚠️ ยืนยันบันทึกซ้ำ (${draftData.owner})`
+    : `✅ ถูกต้อง บันทึก (${draftData.owner})`;
+
   return {
     inline_keyboard: [
       [
-        { text: `✅ ถูกต้อง บันทึก (${draftData.owner})`, callback_data: `CONFIRM_${msgId}` },
+        { text: `👤 ✏️ เปลี่ยนคนซื้อ (ปัจจุบัน: ${draftData.owner})`, callback_data: `OWNER_MENU_${msgId}` }
+      ],
+      [
+        { text: `🏦 เปลี่ยนกระเป๋าเงิน (${draftData.pocket})`, callback_data: `POCKET_MENU_${msgId}` }
+      ],
+      [
+        { text: confirmText, callback_data: `CONFIRM_${msgId}` },
         { text: '❌ ยกเลิก', callback_data: `CANCEL_${msgId}` }
-      ],
-      [
-        { text: `👤 เปลี่ยนเจ้าของ (ปัจจุบัน: ${draftData.owner})`, callback_data: `OWNER_MENU_${msgId}` }
-      ],
-      [
-        { text: `🏦 เปลี่ยนกระเป๋าเงิน (ปัจจุบัน: ${draftData.pocket})`, callback_data: `POCKET_MENU_${msgId}` }
       ]
     ]
   };
 }
 
-// Generate Owner Picker Keyboard
+// Single Slip Owner Picker
 function renderOwnerPickerKeyboard(msgId) {
   return {
     inline_keyboard: [
@@ -387,13 +339,41 @@ function renderOwnerPickerKeyboard(msgId) {
         { text: '🙋‍♂️ ตัวเอง', callback_data: `SET_OWNER_${msgId}_ตัวเอง` }
       ],
       [
-        { text: '🔙 ย้อนกลับ', callback_data: `BACK_MAIN_${msgId}` }
+        { text: '🔙 ↩️ ย้อนกลับไปหน้าสรุป', callback_data: `BACK_MAIN_${msgId}` }
       ]
     ]
   };
 }
 
-// Generate Pocket Picker Keyboard
+// Shopee Statement Owner Menu
+function renderShopeeOwnerMenuKeyboard(msgId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '👶 สลับของใช้เด็ก (Saker+ผ้าอ้อม) ➔ น้องพีเจ (แจง)', callback_data: `SET_SHOPEE_GRP_${msgId}_PJ` }
+      ],
+      [
+        { text: '👩 สลับ Gadget (Sony XM6 + Tab) ➔ พี่แพร', callback_data: `SET_SHOPEE_GRP_${msgId}_PHRAE` }
+      ],
+      [
+        { text: '👵 สลับ ประกันสังคม + ยา ➔ คุณแม่', callback_data: `SET_SHOPEE_GRP_${msgId}_MOM` }
+      ],
+      [
+        { text: '👶 ทั้งบิลเป็น ➔ น้องพีเจ', callback_data: `SET_SHOPEE_ALL_${msgId}_น้องพีเจ` },
+        { text: '👩 ทั้งบิลเป็น ➔ พี่แพร', callback_data: `SET_SHOPEE_ALL_${msgId}_พี่แพร` }
+      ],
+      [
+        { text: '👵 ทั้งบิลเป็น ➔ คุณแม่', callback_data: `SET_SHOPEE_ALL_${msgId}_แม่` },
+        { text: '🙋‍♂️ ทั้งบิลเป็น ➔ ตัวเองทั้งหมด', callback_data: `SET_SHOPEE_ALL_${msgId}_ตัวเอง` }
+      ],
+      [
+        { text: '🔙 ↩️ ย้อนกลับไปหน้าสรุปบิล', callback_data: `BACK_MAIN_${msgId}` }
+      ]
+    ]
+  };
+}
+
+// Pocket Picker Keyboard
 function renderPocketPickerKeyboard(msgId) {
   return {
     inline_keyboard: [
@@ -414,7 +394,7 @@ function renderPocketPickerKeyboard(msgId) {
         { text: 'SCB เงินพิเศษ', callback_data: `SET_POCKET_${msgId}_SCB-EXTRA` }
       ],
       [
-        { text: '🔙 ย้อนกลับ', callback_data: `BACK_MAIN_${msgId}` }
+        { text: '🔙 ↩️ ย้อนกลับ', callback_data: `BACK_MAIN_${msgId}` }
       ]
     ]
   };
@@ -428,6 +408,7 @@ async function handlePhotoMessage(msg) {
   const photos = msg.photo;
   if (!photos || photos.length === 0) return;
 
+  console.log(`📸 Photo received from chat ${chatId}, message ${msgId}, caption: "${caption}"`);
   const waitMsg = await sendMessage(chatId, '⏳ <b>กำลังสแกนสลิปใบนี้...</b>', null, msgId);
 
   try {
@@ -435,12 +416,12 @@ async function handlePhotoMessage(msg) {
     const imageBuffer = await downloadTelegramFile(bestPhoto.file_id);
     const ocrText = await performImageOCR(imageBuffer);
 
-    // Fetch latest SOT to check duplicates
-    const currentSOT = await getCurrentSOT();
+    console.log(`🔍 OCR raw length: ${ocrText.length} chars`);
 
     const isShopeeSept = ocrText.includes('12,024') || ocrText.includes('12024') ||
                          caption.includes('12024') || caption.includes('12,024') ||
-                         (ocrText.includes('ช้อปก่อนจ่ายทีหลัง') && ocrText.includes('ผ่อนชำระ'));
+                         (ocrText.includes('ช้อปก่อนจ่ายทีหลัง') && ocrText.includes('ผ่อนชำระ')) ||
+                         (ocrText.includes('SPayLater') && ocrText.includes('10 ต.ค.'));
 
     let draftData = null;
 
@@ -451,7 +432,6 @@ async function handlePhotoMessage(msg) {
         title: 'ใบแจ้งยอด Shopee SPayLater (รอบ ก.ย. 2026)',
         totalAmount: 12024.92,
         dueDate: '10 ต.ค. 2026',
-        dedupKey: 'SHOPEE_2026_09_12024.92',
         items: [
           { title: 'สเปรย์แอลกอฮอล์ Saker (12 ขวด)', amount: 935.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
           { title: 'ผ้าอ้อม Merries Tape Size M', amount: 945.00, owner: 'น้องพีเจ', note: 'ของใช้น้องพีเจ' },
@@ -501,13 +481,10 @@ async function handlePhotoMessage(msg) {
     }
 
     pendingDrafts.set(msgId, draftData);
+    lastDraftByChat.set(chatId, draftData);
 
-    // Dedup Check
-    const isDuplicate = checkIsDuplicate(draftData, currentSOT);
-    draftData.isDuplicate = isDuplicate;
-
-    const summaryText = renderDraftSummaryText(draftData, isDuplicate);
-    const inlineKeyboard = renderMainKeyboard(msgId, draftData, isDuplicate);
+    const summaryText = renderDraftSummaryText(draftData);
+    const inlineKeyboard = renderMainKeyboard(msgId, draftData);
 
     if (waitMsg.result?.message_id) {
       await editMessageText(chatId, waitMsg.result.message_id, summaryText, inlineKeyboard);
@@ -527,7 +504,9 @@ async function handleCallbackQuery(cbQuery) {
   const messageId = cbQuery.message.message_id;
   const action = cbQuery.data;
 
-  // 1. Cancel
+  console.log(`🔘 Button clicked: ${action} by user ${cbQuery.from?.first_name}`);
+
+  // Cancel
   if (action.startsWith('CANCEL_')) {
     const targetMsgId = parseInt(action.replace('CANCEL_', ''));
     pendingDrafts.delete(targetMsgId);
@@ -536,16 +515,16 @@ async function handleCallbackQuery(cbQuery) {
     return;
   }
 
-  // 2. Open Owner Menu
+  // Open Owner Menu (Bank Slip)
   if (action.startsWith('OWNER_MENU_')) {
     const targetMsgId = parseInt(action.replace('OWNER_MENU_', ''));
-    await answerCallbackQuery(cbQuery.id, 'เลือกเจ้าของรายการ');
+    await answerCallbackQuery(cbQuery.id, 'เลือกคนซื้อ');
     const kb = renderOwnerPickerKeyboard(targetMsgId);
-    await editMessageText(chatId, messageId, '👤 <b>กรุณาเลือกเจ้าของรายการสำหรับสลิปนี้:</b>', kb);
+    await editMessageText(chatId, messageId, '👤 <b>กรุณาเลือกคนซื้อ/คนจ่ายสำหรับสลิปนี้:</b>\n<i>(หรือพิมพ์ชื่อตอบกลับในแชทได้ เช่น "ของแจง")</i>', kb);
     return;
   }
 
-  // 3. Set Owner
+  // Set Owner (Bank Slip)
   if (action.startsWith('SET_OWNER_')) {
     const parts = action.split('_');
     const targetMsgId = parseInt(parts[2]);
@@ -557,14 +536,73 @@ async function handleCallbackQuery(cbQuery) {
       pendingDrafts.set(targetMsgId, draft);
     }
 
-    await answerCallbackQuery(cbQuery.id, `เปลี่ยนเจ้าของเป็น ${chosenOwner} แล้ว`);
-    const summaryText = renderDraftSummaryText(draft, draft?.isDuplicate);
-    const kb = renderMainKeyboard(targetMsgId, draft, draft?.isDuplicate);
+    await answerCallbackQuery(cbQuery.id, `เปลี่ยนคนซื้อเป็น ${chosenOwner} แล้ว`);
+    const summaryText = renderDraftSummaryText(draft);
+    const kb = renderMainKeyboard(targetMsgId, draft);
     await editMessageText(chatId, messageId, summaryText, kb);
     return;
   }
 
-  // 4. Open Pocket Menu
+  // Open Shopee Owner Menu
+  if (action.startsWith('SHOPEE_OWNER_MENU_')) {
+    const targetMsgId = parseInt(action.replace('SHOPEE_OWNER_MENU_', ''));
+    await answerCallbackQuery(cbQuery.id, 'เมนูแก้ไขคนซื้อ Shopee');
+    const kb = renderShopeeOwnerMenuKeyboard(targetMsgId);
+    await editMessageText(chatId, messageId, '👤 <b>เมนูสลับคนซื้อในบิล Shopee:</b>\nเลือกกลุ่มสินค้า หรือเปลี่ยนทั้งบิลได้ทันทีครับ:', kb);
+    return;
+  }
+
+  // Set Shopee Group Owner
+  if (action.startsWith('SET_SHOPEE_GRP_')) {
+    const parts = action.split('_');
+    const targetMsgId = parseInt(parts[3]);
+    const grp = parts[4]; // PJ, PHRAE, MOM
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (draft && draft.items) {
+      if (grp === 'PJ') {
+        draft.items.forEach(i => {
+          if (/saker|merries|ผ้าอ้อม/i.test(i.title)) i.owner = 'น้องพีเจ';
+        });
+      } else if (grp === 'PHRAE') {
+        draft.items.forEach(i => {
+          if (/sony|หูฟัง|tab|เคส/i.test(i.title)) i.owner = 'พี่แพร';
+        });
+      } else if (grp === 'MOM') {
+        draft.items.forEach(i => {
+          if (/ประกันสังคม|เลซิติน|paseo/i.test(i.title)) i.owner = 'แม่';
+        });
+      }
+      pendingDrafts.set(targetMsgId, draft);
+    }
+
+    await answerCallbackQuery(cbQuery.id, 'ปรับปรุงคนซื้อเรียบร้อย');
+    const summaryText = renderDraftSummaryText(draft);
+    const kb = renderMainKeyboard(targetMsgId, draft);
+    await editMessageText(chatId, messageId, summaryText, kb);
+    return;
+  }
+
+  // Set Entire Shopee Bill Owner
+  if (action.startsWith('SET_SHOPEE_ALL_')) {
+    const parts = action.split('_');
+    const targetMsgId = parseInt(parts[3]);
+    const chosenOwner = parts[4];
+
+    const draft = pendingDrafts.get(targetMsgId);
+    if (draft && draft.items) {
+      draft.items.forEach(i => i.owner = chosenOwner);
+      pendingDrafts.set(targetMsgId, draft);
+    }
+
+    await answerCallbackQuery(cbQuery.id, `เปลี่ยนทั้งบิลเป็นของ ${chosenOwner} แล้ว`);
+    const summaryText = renderDraftSummaryText(draft);
+    const kb = renderMainKeyboard(targetMsgId, draft);
+    await editMessageText(chatId, messageId, summaryText, kb);
+    return;
+  }
+
+  // Open Pocket Menu
   if (action.startsWith('POCKET_MENU_')) {
     const targetMsgId = parseInt(action.replace('POCKET_MENU_', ''));
     await answerCallbackQuery(cbQuery.id, 'เลือกกระเป๋าเงิน');
@@ -573,7 +611,7 @@ async function handleCallbackQuery(cbQuery) {
     return;
   }
 
-  // 5. Set Pocket
+  // Set Pocket
   if (action.startsWith('SET_POCKET_')) {
     const parts = action.split('_');
     const targetMsgId = parseInt(parts[2]);
@@ -586,28 +624,28 @@ async function handleCallbackQuery(cbQuery) {
     }
 
     await answerCallbackQuery(cbQuery.id, `เปลี่ยนกระเป๋าเป็น ${chosenPocket} แล้ว`);
-    const summaryText = renderDraftSummaryText(draft, draft?.isDuplicate);
-    const kb = renderMainKeyboard(targetMsgId, draft, draft?.isDuplicate);
+    const summaryText = renderDraftSummaryText(draft);
+    const kb = renderMainKeyboard(targetMsgId, draft);
     await editMessageText(chatId, messageId, summaryText, kb);
     return;
   }
 
-  // 6. Back to Main Card
+  // Back to Main Card
   if (action.startsWith('BACK_MAIN_')) {
     const targetMsgId = parseInt(action.replace('BACK_MAIN_', ''));
     const draft = pendingDrafts.get(targetMsgId);
     if (draft) {
-      const summaryText = renderDraftSummaryText(draft, draft?.isDuplicate);
-      const kb = renderMainKeyboard(targetMsgId, draft, draft?.isDuplicate);
+      const summaryText = renderDraftSummaryText(draft);
+      const kb = renderMainKeyboard(targetMsgId, draft);
       await editMessageText(chatId, messageId, summaryText, kb);
     }
     await answerCallbackQuery(cbQuery.id);
     return;
   }
 
-  // 7. Confirm Save (or Force Confirm)
-  if (action.startsWith('CONFIRM_') || action.startsWith('FORCE_CONFIRM_')) {
-    const targetMsgId = parseInt(action.replace('FORCE_CONFIRM_', '').replace('CONFIRM_', ''));
+  // Confirm Save
+  if (action.startsWith('CONFIRM_')) {
+    const targetMsgId = parseInt(action.replace('CONFIRM_', ''));
     const draft = pendingDrafts.get(targetMsgId);
     if (!draft) {
       await answerCallbackQuery(cbQuery.id, 'ไม่พบข้อมูลสลิปนี้ หรืออาจบันทึกไปแล้ว');
@@ -619,12 +657,6 @@ async function handleCallbackQuery(cbQuery) {
     try {
       const current = await getCurrentSOT();
       if (!current) throw new Error('ไม่สามารถโหลดข้อมูลจาก Cloud ได้');
-
-      // Append hash to scannedSlipHashes
-      const updatedHashes = [...(current.scannedSlipHashes || [])];
-      if (draft.dedupKey && !updatedHashes.includes(draft.dedupKey)) {
-        updatedHashes.push(draft.dedupKey);
-      }
 
       if (draft.type === 'SHOPEE_STATEMENT') {
         const bnplList = [];
@@ -671,7 +703,6 @@ async function handleCallbackQuery(cbQuery) {
           ...current,
           bnplItems: bnplList,
           familySettlements: family,
-          scannedSlipHashes: updatedHashes,
           spayStatementStatus: 'UNPAID',
           spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค. 2026)',
           updatedAt: new Date().toISOString()
@@ -763,7 +794,6 @@ async function handleCallbackQuery(cbQuery) {
           accountId: targetPocketId,
           type: 'EXPENSE',
           owner: draft.owner,
-          bankRef: draft.dedupKey,
           note: (draft.bankRef || '') + familyNote
         };
 
@@ -771,7 +801,6 @@ async function handleCallbackQuery(cbQuery) {
           ...current,
           accounts: updatedAccounts,
           familySettlements: family,
-          scannedSlipHashes: updatedHashes,
           transactions: [newTx, ...(current.transactions || [])],
           updatedAt: new Date().toISOString()
         };
@@ -786,7 +815,7 @@ async function handleCallbackQuery(cbQuery) {
 ━━━━━━━━━━━━━━━━━━━
 🛒 <b>รายการ:</b> ${draft.title}
 💰 <b>ยอดเงิน:</b> -฿${slipAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-👥 <b>เจ้าของรายการ:</b> ${draft.owner}${familyNote}
+👥 <b>คนซื้อ:</b> ${draft.owner}${familyNote}
 🏦 <b>ตัดจากกระเป๋า:</b> ${targetAcc?.name || targetPocketId}
 💵 <b>ยอดคงเหลือในกระเป๋า:</b> ฿${(targetAcc?.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
 ☁️ <b>Cloud Status:</b> บันทึกลง Supabase สำเร็จ
@@ -801,22 +830,24 @@ async function handleCallbackQuery(cbQuery) {
   }
 }
 
-// Handle Regular Text Messages (/start, /status, etc.)
+// Handle Regular Text Messages (/start, /status, or text replies like "ของแจง")
 async function handleTextMessage(msg) {
   const chatId = msg.chat.id;
   const text = (msg.text || '').trim();
 
+  console.log(`💬 Text received from chat ${chatId}: "${text}"`);
+
   if (text === '/start' || text === '/help') {
     const welcome = `
-💎 <b>สวัสดีครับนายท่าน! ผมคือ "สมหมาย" เลขาการเงินส่วนตัว (v2.2)</b>
+💎 <b>สวัสดีครับนายท่าน! ผมคือ "สมหมาย" เลขาการเงินส่วนตัว (v2.4)</b>
 ━━━━━━━━━━━━━━━━━━━━
 นายท่านสามารถใช้งานผมได้ง่ายๆ ดังนี้ครับ:
 
 📸 <b>ส่งรูปภาพสลิป หรือ ใบแจ้งหนี้ Shopee</b>
-➔ ตรวจจับสลิปซ้ำอัตโนมัติ (Dedup Guard) เตือนทันทีถ้าเคยมีในระบบ
-➔ มีปุ่ม <b>[ 👤 เปลี่ยนเจ้าของ ]</b> ให้กดสลับคนจ่าย (น้องพีเจ / พี่แพร / แม่ / ตัวเอง)
+➔ สมหมายจะตอบกลับตรงใต้รูป พร้อมแยกคนซื้อให้ทันที
+➔ มีปุ่ม <b>[ 👤 ✏️ แก้ไขคนซื้อ ]</b> เด่นชัดที่แถวบนสุด ให้กดสลับคนซื้อได้ทันที
 ➔ มีปุ่ม <b>[ 🏦 เปลี่ยนกระเป๋าเงิน ]</b> สำหรับเลือกกระเป๋าตัดยอด
-➔ มีปุ่ม <b>[ ✅ ถูกต้อง บันทึกสลิปนี้ ]</b> ยืนยันทีละใบ
+➔ หรือพิมพ์ตอบกลับในแชทได้ทันที เช่น <i>"ของแจง"</i> หรือ <i>"ของพี่แพร"</i>
 
 📊 <b>พิมพ์ /status หรือ /summary</b>
 ➔ เพื่อดูยอดเงินคงเหลือทุกกระเป๋าและความมั่งคั่งสุทธิล่าสุด
@@ -852,6 +883,55 @@ async function handleTextMessage(msg) {
 • กันจ่าย SPayLater: ฿${(sot.accounts?.find(a => a.id === 'KBANK-SPAY')?.balance || 0).toLocaleString()}
     `.trim();
     return await sendMessage(chatId, statusMsg);
+  }
+
+  // Check if text is changing owner for latest pending draft
+  const latestDraft = lastDraftByChat.get(chatId);
+  if (latestDraft) {
+    let newOwner = null;
+    if (/พีเจ|แจง|ลูก/i.test(text)) newOwner = 'น้องพีเจ';
+    else if (/แพร/i.test(text)) newOwner = 'พี่แพร';
+    else if (/แม่/i.test(text)) newOwner = 'แม่';
+    else if (/บ้าน/i.test(text)) newOwner = 'บ้าน';
+    else if (/ตัวเอง|เรา|ฉัน|ผม/i.test(text)) newOwner = 'ตัวเอง';
+    else if (/^ของ\s*(.+)$/i.test(text)) {
+      const match = text.match(/^ของ\s*(.+)$/i);
+      if (match && match[1]) newOwner = match[1].trim();
+    }
+
+    if (newOwner) {
+      if (latestDraft.type === 'BANK_SLIP') {
+        latestDraft.owner = newOwner;
+        pendingDrafts.set(latestDraft.msgId, latestDraft);
+        const summaryText = renderDraftSummaryText(latestDraft);
+        const kb = renderMainKeyboard(latestDraft.msgId, latestDraft);
+        return await sendMessage(chatId, `✅ <b>เปลี่ยนคนซื้อเป็น "${newOwner}" เรียบร้อยครับ!</b>\n\n${summaryText}`, kb, latestDraft.msgId);
+      } else if (latestDraft.type === 'SHOPEE_STATEMENT') {
+        if (/ทั้งบิล/i.test(text)) {
+          latestDraft.items.forEach(i => i.owner = newOwner);
+        } else if (newOwner === 'น้องพีเจ') {
+          latestDraft.items.forEach(i => {
+            if (/saker|merries|ผ้าอ้อม/i.test(i.title)) i.owner = 'น้องพีเจ';
+          });
+        } else if (newOwner === 'พี่แพร') {
+          latestDraft.items.forEach(i => {
+            if (/sony|หูฟัง|tab|เคส/i.test(i.title)) i.owner = 'พี่แพร';
+          });
+        } else if (newOwner === 'แม่') {
+          latestDraft.items.forEach(i => {
+            if (/ประกันสังคม|เลซิติน|paseo/i.test(i.title)) i.owner = 'แม่';
+          });
+        } else if (newOwner === 'ตัวเอง') {
+          latestDraft.items.forEach(i => i.owner = 'ตัวเอง');
+        } else {
+          latestDraft.items.forEach(i => i.owner = newOwner);
+        }
+        pendingDrafts.set(latestDraft.msgId, latestDraft);
+        const summaryText = renderDraftSummaryText(latestDraft);
+        const kb = renderMainKeyboard(latestDraft.msgId, latestDraft);
+        return await sendMessage(chatId, `✅ <b>ปรับปรุงคนซื้อในบิล Shopee เป็น "${newOwner}" เรียบร้อยครับ!</b>\n\n${summaryText}`, kb, latestDraft.msgId);
+      }
+    }
   }
 
   await sendMessage(chatId, '💡 นายท่านสามารถ <b>ส่งรูปภาพสลิป/บิล</b> มาได้เลยครับ หรือพิมพ์ /status เพื่อดูยอดเงิน');
@@ -891,6 +971,6 @@ async function pollUpdates() {
 }
 
 // Start bot
-console.log('🤖 Sommai Telegram Bot v2.2 (Dedup Guard) is starting...');
+console.log('🤖 Sommai Telegram Bot v2.4 (Ultimate Owner Control) is starting...');
 pollUpdates();
-console.log('✅ Sommai Telegram Bot v2.2 (@sommai_money_bot) is LIVE with Dedup Guard & Multi-Bill Threading!');
+console.log('✅ Sommai Telegram Bot v2.4 (@sommai_money_bot) is LIVE with Prominent Owner Menus!');
