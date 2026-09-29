@@ -974,8 +974,8 @@ ${pocketLines}
   if (text.startsWith('/setkey')) {
     const parts = text.split(/\s+/);
     const newKey = parts[1]?.trim();
-    if (!newKey || !newKey.startsWith('AIzaSy')) {
-      return await sendMessage(chatId, '💡 <b>วิธีตั้งค่า Gemini API Key:</b>\nพิมพ์ <code>/setkey AIzaSy...</code> โดยนำคีย์จาก <a href="https://aistudio.google.com/app/apikey">Google AI Studio</a> มาใส่ครับ');
+    if (!newKey || newKey.length < 20) {
+      return await sendMessage(chatId, '💡 <b>วิธีตั้งค่า Gemini API Key:</b>\nพิมพ์ <code>/setkey &lt;คีย์ใหม่&gt;</code> โดยนำคีย์จาก <a href="https://aistudio.google.com/app/apikey">Google AI Studio</a> มาใส่ครับ');
     }
 
     try {
