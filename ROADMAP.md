@@ -63,10 +63,11 @@
     - [x] หน้าต่างเลือกและแก้ไข Multi-Item Breakdown View พร้อมระบบติ๊กเลือก/แก้ไขชื่อ/ปรับยอด/ระบุเจ้าของย่อย (`น้องพีเจ`, `แจง`, `พี่แพร`, `บ้าน`, `แม่`, `ตัวเอง`)
     - [x] ปุ่ม 1-Click นำเข้าทุกรายการย่อยเข้า BNPL พร้อมสร้างงวดผ่อนและซิงค์ยอดเรียกเก็บคนในครอบครัวอัตโนมัติ
     - [x] ล้าง Mock Data เก่าเดือนสิงหาคมออกจากระบบ และติดตั้ง Cloud-First SSOT สถาปัตยกรรมความจริงเดียวจาก Supabase Cloud ป้องกันข้อมูลจริงถูกเขียนทับ
-  - [x] **ระบบสมหมาย Telegram Bot Daemon & Windows Startup Auto-Launch**:
-    - [x] อัปเกรด Sommai Bot v2.7 เพิ่ม Crash Resilience (`uncaughtException`/`unhandledRejection`), Single-instance lock (`bot.pid`), Auto-retry connection
-    - [x] ติดตั้ง Startup Launcher (`sommai_bot_startup.vbs`) ในโฟลเดอร์ Windows Startup ให้บอทเปิดตัวเองทุกครั้งที่เปิดเครื่อง/ล็อกอิน (รันแบบเงียบ ไร้หน้าต่างดำ)
-    - [x] สร้างสคริปต์ควบคุม `start_bot.bat`, `start_bot_silent.vbs`, `stop_bot.bat` และคำสั่ง `"bot"` ใน package.json
+  - [x] **ระบบสมหมาย Telegram Bot (24/7 Cloud Serverless Webhook on Vercel)**:
+    - [x] ย้ายระบบจาก Local Polling สู่ **Vercel Serverless Function** (`api/telegram.js`) ตอบสด 24 ชม. แม้ปิดคอม
+    - [x] เชื่อมต่อ Telegram Webhook เข้ากับ `https://personal-finance-ai-eight.vercel.app/api/telegram` (Timeout 60s)
+    - [x] สถาปัตยกรรม Stateless & Cloud-Persistent Drafts บันทึกแบบร่างลง Supabase Cloud รองรับการกดสลับคนซื้อได้ทุกเวลา
+    - [x] อัปเกรด Sommai Bot v2.7 สำหรับรัน Local Fallback เมื่อจำเป็น พร้อมสคริปต์ควบคุม `start_bot.bat` / `stop_bot.bat`
 
 - [ ] **Phase 8 (Future Blueprint): Commercial Mobile App & SaaS Transformation (แผนต่อยอดสู่แอปมือถือเพื่อการค้า)**
   - [ ] **Track 1: Multi-Tenant Architecture & Auth (ระบบสมาชิก & แยกฐานข้อมูลผู้ใช้)**

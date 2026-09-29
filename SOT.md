@@ -140,15 +140,17 @@
 
 ---
 
-## 🤖 9. ระบบสมหมาย Telegram Bot Daemon & Windows Startup
-* **มาตรฐานการทำงานตลอดเวลา (24/7 Always-On Readiness):**
-  1. **Windows Startup Launcher:**
-     - ติดตั้งไฟล์ชอร์ตคัตเบื้องหลัง `sommai_bot_startup.vbs` ในโฟลเดอร์ `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`
-     - สตาร์ทบอทอัตโนมัติทุกครั้งที่เปิดเครื่องหรือล็อกอินเข้า Windows (ทำงานแบบเงียบ ไร้หน้าต่างดำรบกวน)
-  2. **Crash Resilience & Boot Tolerance:**
-     - ดักจับ `uncaughtException` และ `unhandledRejection` ป้องกันบอทหลุดตายจากเหตุการณ์ชั่วคราว
-     - ระบบ Auto-Retry ช่วงเปิดเครื่อง (รอสัญญาณอินเทอร์เน็ต/Wi-Fi เชื่อมต่อก่อนเริ่มโหลด Cloud SOT)
-     - Single-Instance Lock (`bot.pid`) ป้องกันการรันบอทซ้อนจนเกิด Telegram 409 Conflict
+## 🤖 9. ระบบสมหมาย Telegram Bot (24/7 Cloud Serverless Webhook)
+* **มาตรฐานการทำงานตลอดเวลา 24 ชั่วโมง (24/7 Always-On Cloud Native):**
+  1. **Vercel Serverless Webhook Endpoint:**
+     - ย้ายระบบรับข้อความและรูปภาพจาก Local Polling สู่ Cloud Serverless Function ที่ `https://personal-finance-ai-eight.vercel.app/api/telegram`
+     - ทำงานตลอด 24 ชั่วโมง 100% โดย**ไม่ต้องเปิดเครื่องคอมพิวเตอร์ทิ้งไว้**
+     - เชื่อมต่อผ่าน Telegram Webhook API พร้อมระบบความปลอดภัยและการจัดการ Timeout สูงสุด 60 วินาที
+  2. **Stateless & Cloud-Persistent Drafts:**
+     - บันทึกสถานะการยืนยันแบบร่าง (Drafts) ลง Supabase `app_state` (`BOT_DRAFT_${msgId}`) ทำให้กดปุ่มสลับคนซื้อ/เลือกกระเป๋า/กดยืนยันบิลได้จากทุก Serverless Instance อย่างแม่นยำ
   3. **Multimodal AI Vision & Confirmation Gate:**
-     - ขับเคลื่อนด้วยโมเดล `gemini-2.5-flash` อ่านสลิปธนาคารและใบแจ้งยอด Shopee SPayLater รายชิ้น
+     - ขับเคลื่อนด้วยโมเดล `gemini-2.5-flash` อ่านสลิปธนาคารและใบแจ้งยอด Shopee SPayLater รายชิ้น ละเอียดทุกรายการ
      - ป้องกันการบันทึกทิพย์ด้วย Interactive Confirmation Gate นายท่านต้องเป็นผู้กดยืนยันก่อนตัดยอดเข้า Cloud เสมอ
+  4. **Ultra-Low Bandwidth Consumption:**
+     - ออกแบบให้กินปริมาณเน็ตมือถือน้อยมาก (~50 - 150 KB ต่อรูปสลิป) ใช้งานนอกบ้านได้อย่างประหยัดและรวดเร็ว
+

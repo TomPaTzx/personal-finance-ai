@@ -17,6 +17,7 @@
 | **#007** | 2026-09-28 13:58 | นายท่าน | อัปเกรดระบบอ่านภาพสลิป/บิลมาใช้ Gemini Vision AI Engine แทน Local OCR ทั่วทั้งระบบ | 🟢 สำเร็จ & LIVE |
 | **#008** | 2026-09-28 14:31 | นายท่าน | เปิดใช้งาน Google Gemini API Key (Gemini 2.5 Flash) บน Supabase Cloud และ Bot | 🟢 สำเร็จ & LIVE |
 | **#009** | 2026-09-29 21:35 | นายท่าน | แก้ไขบอทออฟไลน์, อัปเกรด Sommai Bot v2.7 (Crash Guard), และติดตั้ง Windows Startup ให้บอทเปิดพร้อมเครื่องอัตโนมัติ | 🟢 สำเร็จ & LIVE |
+| **#010** | 2026-09-29 22:00 | นายท่าน | ย้ายระบบ Telegram Bot ขึ้น Vercel Serverless Webhook ทำงานสดตลอด 24 ชม. แม้ปิดคอมพิวเตอร์ ฟรี 100% | 🟢 สำเร็จ & LIVE |
 
 ---
 
@@ -221,3 +222,32 @@
   - ติดตั้ง Windows Startup Launcher เรียบร้อย (เปิดพร้อมเครื่อง 100%)
   - บอททำงานสด (LIVE) ใน Background
   - ประมวลผลบิลทั้ง 2 ใบที่ค้างอยู่ (บิลผ่อนชำระ ฿4,733.97 และ บิล BNPL ฿4,039.10) ด้วย Gemini 2.5 Flash Vision และส่งการ์ดสรุปไปยัง Telegram นายท่านเรียบร้อย
+
+---
+
+### ครั้งที่: #010
+* **วัน-เวลา:** 2026-09-29 22:00:00 (+07:00)
+* **บริบทและคำสั่งของนายท่าน:**
+  - นายท่านถาม: *"แล้วถ้าอยู่นอกบ้านไม่ได้เปิดคอมหละทำไง"* และ *"สามารถรันบนมือถือได้ไหมแล้วมันจะกินเน็ตมากหรือเปล่า"*
+  - นายท่านสั่ง: *"เอา"* (อนุมัติติดตั้งระบบ Cloud Serverless Webhook บน Vercel)
+* **รายการไฟล์ที่แก้ไข/สร้าง:**
+  1. `api/telegram.js` (สร้างใหม่):
+     - Serverless Function Handler สำหรับ Vercel รองรับคำสั่ง `/start`, `/status`, การรับรูปภาพสลิป/บิล Shopee, และ Callback Queries
+     - ประมวลผลด้วยโมเดล `gemini-2.5-flash` อ่านสลิปและใบแจ้งยอด พร้อมส่ง Interactive Confirmation Cards
+     - จัดการ State แบบร่างแบบ Stateless ปลอดภัย 100% บันทึกลง Supabase `app_state` (`BOT_DRAFT_${msgId}`)
+  2. `vercel.json` (สร้างใหม่):
+     - กำหนดค่า `functions.api/telegram.js.maxDuration = 60` และ `memory = 1024`
+  3. `Telegram Webhook Configuration`:
+     - สลับการทำงานจาก Local Polling สู่ Cloud Webhook URL: `https://personal-finance-ai-eight.vercel.app/api/telegram`
+     - ตรวจสอบสถานะ Webhook (`getWebhookInfo`): `pending_update_count = 0`, Active 100%
+  4. `Local Daemon Cleanup`:
+     - ปิด Local Process บนเครื่องคอมพิวเตอร์ และลบ Startup script เพื่อไม่ให้เกิด Conflict ชนกับ Cloud
+  5. `SOT.md` & `ROADMAP.md`:
+     - ปรับปรุงข้อตกลงและแผนงานข้อ 9 เป็นระบบ 24/7 Cloud Serverless Webhook
+  6. `WORKLOG.md`: บันทึกประวัติการทำงานครั้งที่ #010
+* **ผลลัพธ์การตรวจสอบ:**
+  - Vercel Endpoint `https://personal-finance-ai-eight.vercel.app/api/telegram` ตอบกลับ Status 200 OK
+  - Telegram Webhook เชื่อมต่อสมบูรณ์ (`ok: true, description: 'Webhook was set'`)
+  - ส่งข้อความประกาศการเปิดใช้งานระบบ 24/7 ไปยัง Telegram ของนายท่านสำเร็จ
+  - บอททำงานบน Cloud ตลอดเวลา 24 ชม. แม้คอมพิวเตอร์จะปิดอยู่ และกินเน็ตมือถือน้อยมาก (~50-150 KB/รูป)
+
