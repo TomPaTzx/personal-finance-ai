@@ -153,4 +153,8 @@
      - ป้องกันการบันทึกทิพย์ด้วย Interactive Confirmation Gate นายท่านต้องเป็นผู้กดยืนยันก่อนตัดยอดเข้า Cloud เสมอ
   4. **Ultra-Low Bandwidth Consumption:**
      - ออกแบบให้กินปริมาณเน็ตมือถือน้อยมาก (~50 - 150 KB ต่อรูปสลิป) ใช้งานนอกบ้านได้อย่างประหยัดและรวดเร็ว
+  5. **Zero-Leakage Security & Auto-Revocation Defense:**
+     - จัดเก็บ `GEMINI_API_KEY` ไว้ในระบบ Vercel Production Environment Variables โดยตรงแบบเข้ารหัส
+     - ตัดความเสี่ยงจากการหลุดลง Git หรือการถูกบอท GitHub Secret Scanning ตรวจจับและสั่งแบนโดยสิ้นเชิง 100%
+
 
