@@ -224,24 +224,33 @@ async function analyzeWithGeminiVision(imageBuffer, mimeType = 'image/jpeg') {
    - dueDate: วันครบกำหนดชำระ เช่น "10 ต.ค. 2026"
    - totalAmount: ยอดรวมทั้งบิล (ตัวเลข)
    - items: แกะรายการสินค้าทุกชิ้นออกมาให้ครบถ้วน ห้ามข้าม:
-     - title: ชื่อสินค้าที่แท้จริงตามหน้าจอ (เช่น "1 ฟรี 1 พิซซ่าขอบเอ็กซ์ตรีม ถาดใหญ่ (L) หมวดเดอลุกซ์", "ไก่ทอดแมค สูตรสไปซี่", "ยาสีฟันเทพไทย")
-     - amount: ยอดเงินของสินค้านั้น
-     - isInstallment: true/false
-     - owner: พิจารณาตามบริบท:
-       * "น้องพีเจ": ของใช้เด็ก/ลูก เช่น Saker, Merries, ผ้าอ้อม, นม, ทิชชู่เปียก
-       * "พี่แพร": หูฟัง Sony, เคส Tab, ของฝากซื้อ
-       * "แม่" หรือ "บ้าน": ประกันสังคม ม.39, ยาบำรุง, ของใช้ส่วนรวม
-       * "ตัวเอง": อาหาร (พิซซ่า, ไก่ทอด, ซูชิ), ของใช้ส่วนตัว
-     - category: "FOOD" | "KIDS" | "GADGET" | "LIFESTYLE" | "HOME" | "HEALTH"
+     * กฎการตรวจจับ "รายการผ่อน" vs "ช้อปก่อนจ่ายทีหลัง":
+       - หากชื่อสินค้ามีสัญลักษณ์ [X/Y] เช่น [1/12], [5/5], [4/12], [2/12], [7/12] นำหน้าหรืออยู่ในชื่อ:
+         * isInstallment = true
+         * paymentType = "INSTALLMENT"
+         * installmentInfo = "งวด X/Y" (เช่น "งวด 1/12", "งวด 5/5")
+         * title = ชื่อสินค้าเต็มที่มี [งวด X/Y] เช่น "[1/12] พวงมาลัย Logitech" หรือ "หูฟัง Sony WH-1000XM6 [งวด 5/5]"
+       - หากไม่มีสัญลักษณ์ [X/Y] (เช่น ซื้อของกิน, ของใช้, สเปรย์ Saker, ผ้าอ้อม, ยาสีฟัน):
+         * isInstallment = false
+         * paymentType = "BNPL_PAY_LATER" (ช้อปก่อนจ่ายทีหลัง จ่ายงวดเดียวเดือนหน้า)
+         * installmentInfo = null
+     * amount: ยอดเงินของสินค้านั้น
+     * owner: พิจารณาตามบริบท:
+       - "น้องพีเจ": ของใช้เด็ก/ลูก เช่น Saker, Merries, ผ้าอ้อม, นม, ทิชชู่เปียก
+       - "พี่แพร": หูฟัง Sony, เคส Tab, ของฝากซื้อ
+       - "แม่" หรือ "บ้าน": ประกันสังคม ม.39, ยาบำรุง, ของใช้ส่วนรวม
+       - "ตัวเอง": อาหาร (พิซซ่า, ไก่ทอด, ซูชิ), ของใช้ส่วนตัว
+     * category: "FOOD" | "KIDS" | "GADGET" | "LIFESTYLE" | "HOME" | "HEALTH"
 
 2. หากเป็นสลิปโอนเงินธนาคาร (KBank, SCB, KTB, TrueMoney):
    - type = "BANK_SLIP"
    - bankName: ชื่อธนาคาร เช่น "กสิกรไทย (KBank)", "ไทยพาณิชย์ (SCB)"
    - recipient: ชื่อผู้รับเงิน / ร้านค้า
+   - purpose: ระบุวัตถุประสงค์ให้ชัดเจนว่า "เป็นการโอนค่าใช้จ่ายอะไร" เช่น "ค่าอาหาร (สุกี้ตี๋น้อย)", "ของใช้น้องพีเจ", "โอนเงินให้แม่", "ค่าขนม/เติมบัตร รร.", "ค่าของใช้ทั่วไป"
    - totalAmount: ยอดเงินที่โอน (ตัวเลข)
    - bankRef: รหัสอ้างอิงธุรกรรม
    - timeStr: วันที่และเวลาในสลิป
-   - pocket: "KBANK-FOOD" (หากเป็นของกิน), "KBANK-DEBIT" (ทั่วไป), "KBANK-SNACK" (ขนม/รร.)
+   - pocket: "KBANK-FOOD" (หากเป็นค่าอาหาร/ของกิน), "KBANK-SNACK" (ขนม/เติมบัตรรร.), "KBANK-HOME" (โอนให้แม่/บ้าน), "KBANK-DEBIT" (ทั่วไป)
    - owner: "ตัวเอง", "น้องพีเจ", "พี่แพร", "แม่", หรือ "บ้าน"
 
 ตอบกลับเป็น JSON เท่านั้นตามโครงสร้าง:
@@ -251,12 +260,22 @@ async function analyzeWithGeminiVision(imageBuffer, mimeType = 'image/jpeg') {
   "totalAmount": 0.00,
   "dueDate": "10 ต.ค. 2026",
   "bankName": "ชื่อธนาคาร",
+  "recipient": "ชื่อผู้รับ/ร้านค้า",
+  "purpose": "วัตถุประสงค์การโอน",
   "bankRef": "รหัสอ้างอิง",
   "timeStr": "วันเวลา",
   "pocket": "KBANK-DEBIT",
   "owner": "ตัวเอง",
   "items": [
-    { "title": "ชื่อสินค้า", "amount": 0.00, "owner": "ตัวเอง", "category": "FOOD", "isInstallment": false }
+    { 
+      "title": "ชื่อสินค้า", 
+      "amount": 0.00, 
+      "owner": "ตัวเอง", 
+      "category": "FOOD", 
+      "isInstallment": false,
+      "paymentType": "BNPL_PAY_LATER",
+      "installmentInfo": null 
+    }
   ]
 }
 `.trim();
@@ -292,6 +311,25 @@ async function analyzeWithGeminiVision(imageBuffer, mimeType = 'image/jpeg') {
       if (rawText) {
         const parsed = JSON.parse(rawText);
         parsed.engine = `Gemini (${model})`;
+
+        // Post-processing Regex Safety Net for Shopee [X/Y] Installments
+        if (parsed.items && Array.isArray(parsed.items)) {
+          parsed.items.forEach(item => {
+            const instMatch = (item.title || '').match(/\[?(\d+)\s*\/\s*(\d+)\]?/);
+            if (instMatch) {
+              item.isInstallment = true;
+              item.paymentType = 'INSTALLMENT';
+              item.installmentInfo = `งวด ${instMatch[1]}/${instMatch[2]}`;
+              if (!item.title.includes(`[งวด ${instMatch[1]}/${instMatch[2]}]`) && !item.title.startsWith(`[${instMatch[1]}/${instMatch[2]}]`)) {
+                item.title = `${item.title} [งวด ${instMatch[1]}/${instMatch[2]}]`;
+              }
+            } else if (!item.isInstallment) {
+              item.paymentType = 'BNPL_PAY_LATER';
+              item.installmentInfo = null;
+            }
+          });
+        }
+
         return parsed;
       }
     } catch (e) {
@@ -473,7 +511,12 @@ function renderDraftSummaryText(draftData) {
 
       const itemsListStr = items.map(item => {
         const num = globalNum++;
-        const instBadge = item.isInstallment ? ' <code>[ผ่อน]</code>' : '';
+        let instBadge = '';
+        if (item.isInstallment || item.paymentType === 'INSTALLMENT') {
+          instBadge = ` <code>[${item.installmentInfo || 'ผ่อน'}]</code>`;
+        } else {
+          instBadge = ' <code>[ช้อปก่อนจ่าย]</code>';
+        }
         return `  <b>${num}.</b> ${item.title}: <b>฿${(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>${instBadge}`;
       }).join('\n');
 
@@ -498,13 +541,14 @@ ${sectionsText.trim()}
                      draftData.owner === 'บ้าน' ? '🏠 กองกลางบ้าน' : `🙋‍♂️ ${draftData.owner || 'ตัวเอง'}`;
 
   const dupBadge = draftData.isDuplicate ? '⚠️ <b>ตรวจพบ: สลิปนี้อาจเคยบันทึกแล้วในระบบ</b>\n' : '';
+  const purposeLine = draftData.purpose ? `🎯 <b>วัตถุประสงค์:</b> <b>${draftData.purpose}</b>\n` : '';
 
   return `
-🧾 <b>สลิปใบนี้ (อ้างอิงรูปด้านบน ☝️):</b>${engineBadge}
+🧾 <b>สลิปโอนเงิน (อ้างอิงรูปด้านบน ☝️):</b>${engineBadge}
 ━━━━━━━━━━━━━━━━━━━
 ${dupBadge}🏦 <b>ธนาคาร/ระบบ:</b> ${draftData.bankName}
-👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title}</b>
-💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+👤 <b>โอนไปยัง/ร้านค้า:</b> <b>${draftData.title || draftData.recipient || 'ร้านค้า'}</b>
+${purposeLine}💰 <b>ยอดเงิน:</b> <b>฿${draftData.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
 ${draftData.bankRef ? `🔢 <b>อ้างอิง:</b> ${draftData.bankRef}\n` : ''}${draftData.timeStr ? `🕒 <b>เวลา:</b> ${draftData.timeStr}\n` : ''}👥 <b>คนซื้อ/เจ้าของ:</b> <b>${ownerLabel}</b>
 💳 <b>บันทึกตัดจาก:</b> กระเป๋า <code>${draftData.pocket}</code>
 ━━━━━━━━━━━━━━━━━━━
