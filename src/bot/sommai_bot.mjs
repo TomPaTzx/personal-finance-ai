@@ -1,10 +1,78 @@
 /**
- * Sommai Telegram Bot Service v2.6 (Gemini Vision AI Powered)
+ * Sommai Telegram Bot Service v2.7 (Gemini Vision AI Powered + Auto-Recovery Daemon)
  * Gemini 2.5 Flash Vision Multimodal Engine + Local OCR Fallback
- * Granular Item Breakdown + Interactive Confirmation Gate
+ * Granular Item Breakdown + Interactive Confirmation Gate + Crash Resilience
  */
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { createWorker } from 'tesseract.js';
+
+// Crash Protection Handlers - Keep daemon alive on transient errors
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ [Sommai Bot] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ [Sommai Bot] Unhandled Rejection:', reason);
+});
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '../../');
+
+// Automatic .env file fallback loader
+function loadEnvFallback() {
+  try {
+    const envPath = path.resolve(projectRoot, '.env');
+    if (fs.existsSync(envPath)) {
+      const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+      for (const line of lines) {
+        const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+        if (match) {
+          const key = match[1];
+          let val = (match[2] || '').trim();
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          if (!process.env[key]) process.env[key] = val;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Could not read .env file:', e.message);
+  }
+}
+loadEnvFallback();
+
+// PID file management to ensure single instance
+const pidPath = path.resolve(__dirname, 'bot.pid');
+try {
+  if (fs.existsSync(pidPath)) {
+    const oldPid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
+    if (oldPid && oldPid !== process.pid) {
+      try {
+        process.kill(oldPid, 0); // Check if running
+        console.log(`Killing old bot process (PID: ${oldPid})...`);
+        process.kill(oldPid, 'SIGTERM');
+      } catch (e) {
+        // Not running, safe to overwrite
+      }
+    }
+  }
+  fs.writeFileSync(pidPath, String(process.pid));
+} catch (e) {
+  console.warn('PID file handling warning:', e.message);
+}
+
+process.on('exit', () => {
+  try {
+    if (fs.existsSync(pidPath)) {
+      const curPid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
+      if (curPid === process.pid) fs.unlinkSync(pidPath);
+    }
+  } catch (e) {}
+});
 
 const BOT_TOKEN = '8719597880:AAGEjzdCn4JKUnnV2iKUnyzmQB2_kfJve4g';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -19,22 +87,32 @@ const pendingDrafts = new Map();
 const lastDraftByChat = new Map();
 
 // Gemini API Key (Loaded from Env or Supabase Cloud)
-let geminiApiKey = process.env.GEMINI_API_KEY || '';
+let geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
 
-// Load Gemini Key from Cloud
+// Load Gemini Key from Cloud with retry for system boot
 async function initGeminiKey() {
-  try {
-    const { data } = await supabase
-      .from('app_state')
-      .select('data')
-      .eq('id', 'CURRENT_SOT')
-      .single();
-    if (data?.data?.geminiApiKey) {
-      geminiApiKey = data.data.geminiApiKey;
-      console.log('✨ Gemini Vision AI Key loaded from Supabase Cloud!');
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      const { data } = await supabase
+        .from('app_state')
+        .select('data')
+        .eq('id', 'CURRENT_SOT')
+        .single();
+      if (data?.data?.geminiApiKey) {
+        geminiApiKey = data.data.geminiApiKey;
+        console.log('✨ Gemini Vision AI Key loaded from Supabase Cloud!');
+      } else if (geminiApiKey) {
+        console.log('✨ Gemini Vision AI Key loaded from local .env!');
+      }
+      return;
+    } catch (err) {
+      console.warn(`Could not load Gemini Key from Supabase (attempt ${attempt}/10):`, err.message);
+      if (geminiApiKey) {
+        console.log('✨ Using local Gemini Key from .env during offline/boot phase.');
+        return;
+      }
+      await new Promise(r => setTimeout(r, 3000));
     }
-  } catch (err) {
-    console.warn('Could not load Gemini Key from Supabase:', err.message);
   }
 }
 
@@ -1402,18 +1480,71 @@ async function pollUpdates() {
           handleCallbackQuery(update.callback_query).catch(e => console.error('Callback error:', e));
         }
       }
+    } else if (!res.ok) {
+      if (res.error_code === 409) {
+        console.warn('⚠️ 409 Conflict: อีกโปรเซสกำลังทำงานอยู่ รอ 5 วินาที...');
+        await new Promise(r => setTimeout(r, 5000));
+      } else {
+        console.warn('Telegram getUpdates returned non-ok (will retry in 3s):', res);
+        await new Promise(r => setTimeout(r, 3000));
+      }
     }
   } catch (err) {
-    console.error('Polling error:', err);
-    await new Promise(r => setTimeout(r, 3000));
+    console.error('Polling connection error (will retry in 5s):', err.message);
+    await new Promise(r => setTimeout(r, 5000));
   }
 
   setImmediate(pollUpdates);
 }
 
+// Recover Missed Messages (e.g., Slips sent while bot was offline)
+async function recoverMissedUpdates() {
+  const userChatId = 8832568829;
+  try {
+    await sendMessage(userChatId, '🤖 <b>สมหมาย Bot กลับมาออนไลน์แล้วครับ!</b>\n⚡ กำลังนำรูปบิลที่นายท่านส่งมาก่อนหน้านี้มาประมวลผลให้เดี๋ยวนี้ครับ...');
+    
+    // Msg 18: Installment Statement
+    console.log('🔄 Re-processing missed message 18 (Installments)...');
+    await handlePhotoMessage({
+      message_id: 18,
+      date: 1790691757,
+      chat: { id: userChatId, type: 'private' },
+      from: { id: userChatId, first_name: 'Kasidit' },
+      photo: [{
+        file_id: 'AgACAgUAAxkBAAMSarvJrUwJPSkdAwSGhmUpYSyIxFcAAsEWaxs2QeBVcZJC_MCmXPABAAMCAAN5AAM9BA',
+        file_unique_id: 'AQADwRZrGzZB4FV-',
+        file_size: 106786,
+        width: 628,
+        height: 1280
+      }]
+    });
+
+    // Msg 19: BNPL Statement
+    console.log('🔄 Re-processing missed message 19 (BNPL Statement)...');
+    await handlePhotoMessage({
+      message_id: 19,
+      date: 1790691777,
+      chat: { id: userChatId, type: 'private' },
+      from: { id: userChatId, first_name: 'Kasidit' },
+      photo: [{
+        file_id: 'AgACAgUAAxkBAAMTarvJwRCdTZFRwRV2_NOmJH7qxSwAAsIWaxs2QeBV0O2kPCQu59MBAAMCAAN5AAM9BA',
+        file_unique_id: 'AQADwhZrGzZB4FV-',
+        file_size: 100380,
+        width: 628,
+        height: 1280
+      }]
+    });
+  } catch (err) {
+    console.error('Error in recoverMissedUpdates:', err);
+  }
+}
+
 // Start bot
-console.log('🤖 Sommai Telegram Bot v2.6 (Gemini Vision AI Powered) is starting...');
+console.log('🤖 Sommai Telegram Bot v2.7 (Gemini Vision AI Powered + Daemon Auto-Recovery) is starting...');
 initGeminiKey().then(() => {
   pollUpdates();
-  console.log('✅ Sommai Telegram Bot v2.6 (@sommai_money_bot) is LIVE with Gemini Vision Support!');
+  console.log('✅ Sommai Telegram Bot v2.7 (@sommai_money_bot) is LIVE with Gemini Vision Support!');
+  // Process missed slips
+  recoverMissedUpdates().catch(e => console.error('Recovery error:', e));
 });
+

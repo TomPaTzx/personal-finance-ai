@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node scripts/auto-sync.js && vite",
     "sync": "node scripts/auto-sync.js",
+    "bot": "node --env-file=.env src/bot/sommai_bot.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

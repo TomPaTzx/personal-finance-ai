@@ -137,3 +137,18 @@
   4. **Cloud-First SSOT:**
      - ข้อมูลใน Supabase Cloud ถือเป็นความจริงสูงสุด (Single Source of Truth)
      - ตัดขาด Mock Data เก่าในโค้ด ป้องกันการ Revert ทับข้อมูลจริงในชีวิตประจำวัน
+
+---
+
+## 🤖 9. ระบบสมหมาย Telegram Bot Daemon & Windows Startup
+* **มาตรฐานการทำงานตลอดเวลา (24/7 Always-On Readiness):**
+  1. **Windows Startup Launcher:**
+     - ติดตั้งไฟล์ชอร์ตคัตเบื้องหลัง `sommai_bot_startup.vbs` ในโฟลเดอร์ `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`
+     - สตาร์ทบอทอัตโนมัติทุกครั้งที่เปิดเครื่องหรือล็อกอินเข้า Windows (ทำงานแบบเงียบ ไร้หน้าต่างดำรบกวน)
+  2. **Crash Resilience & Boot Tolerance:**
+     - ดักจับ `uncaughtException` และ `unhandledRejection` ป้องกันบอทหลุดตายจากเหตุการณ์ชั่วคราว
+     - ระบบ Auto-Retry ช่วงเปิดเครื่อง (รอสัญญาณอินเทอร์เน็ต/Wi-Fi เชื่อมต่อก่อนเริ่มโหลด Cloud SOT)
+     - Single-Instance Lock (`bot.pid`) ป้องกันการรันบอทซ้อนจนเกิด Telegram 409 Conflict
+  3. **Multimodal AI Vision & Confirmation Gate:**
+     - ขับเคลื่อนด้วยโมเดล `gemini-2.5-flash` อ่านสลิปธนาคารและใบแจ้งยอด Shopee SPayLater รายชิ้น
+     - ป้องกันการบันทึกทิพย์ด้วย Interactive Confirmation Gate นายท่านต้องเป็นผู้กดยืนยันก่อนตัดยอดเข้า Cloud เสมอ
