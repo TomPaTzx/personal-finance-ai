@@ -102,13 +102,22 @@ export default function AllocationModal({ isOpen, onClose, sotData, updateSOTDat
   };
 
   // Liabilities Calculations
-  const isSpayStatementPaid = sotData.spayStatementStatus === 'PAID';
+  const currentCycle = sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)';
+  const isSpayStatementPaid = sotData.spayStatementStatus === 'PAID' || currentCycle.includes('ส.ค.');
   const currentBnplTotal = (sotData.bnplItems || [])
     .filter(i => !isSpayStatementPaid && !i.isPaidInStatement)
     .reduce((sum, item) => sum + item.amount, 0);
-  const fullSpayStatement = isSpayStatementPaid ? 0 : (currentBnplTotal + 5177.95);
+
+  const activeSpayDebts = (sotData.debts || []).filter(d => 
+    (d.linkedAccountId === 'KBANK-SPAY' || d.category === 'SPAYLATER') && 
+    (d.remainingInstallments > 0 || d.remainingAmount > 0) &&
+    d.status !== 'COMPLETED'
+  );
+  const monthlySpayInstallments = isSpayStatementPaid ? 0 : activeSpayDebts.reduce((sum, d) => sum + (d.monthlyPayment || 0), 0);
+  const fullSpayStatement = isSpayStatementPaid ? 0 : (currentBnplTotal + monthlySpayInstallments);
   const spayGap = Math.max(0, Math.round((fullSpayStatement - (spayAcc.balance || 0)) * 100) / 100);
   const isSpayNeeded = !isSpayStatementPaid && spayGap > 0;
+
 
   const pendingFamilyWeOwe = familySettlements.reduce((sum, person) => {
     const pWeOwe = (person.items || []).filter(i => i.type === 'WE_OWE' && i.status === 'PENDING').reduce((s, i) => s + i.amount, 0);

@@ -36,22 +36,65 @@ export default function DebtTracker({ sotData, updateSOTData }) {
 
   const debts = sotData.debts || [];
   
-  // Separate Personal Debt vs Others Debt
-  // Note: If linked to CARD-JAENG/MOM/PHRAE and payerType is WE_PAY -> This is OUR personal debt!
-  const myDebts = debts.filter(d => (d.owner === 'ตัวเอง' || d.owner === 'บ้าน' || d.payerType === 'WE_PAY' || d.linkedAccountId?.startsWith('CARD-')));
-  const othersDebts = debts.filter(d => (d.owner !== 'ตัวเอง' && d.owner !== 'บ้าน' && d.payerType !== 'WE_PAY' && !d.linkedAccountId?.startsWith('CARD-')));
+  // Separate Personal Debt vs Others Debt (Filter active debts with remaining installments > 0)
+  const activeDebts = debts.filter(d => (d.remainingInstallments > 0 || d.remainingAmount > 0) && d.status !== 'COMPLETED');
+  const myDebts = activeDebts.filter(d => (d.owner?.includes('ตัวเอง') || d.owner?.includes('บ้าน') || d.payerType === 'WE_PAY' || d.linkedAccountId?.startsWith('CARD-')));
+  const othersDebts = activeDebts.filter(d => (!d.owner?.includes('ตัวเอง') && !d.owner?.includes('บ้าน') && d.payerType !== 'WE_PAY' && !d.linkedAccountId?.startsWith('CARD-')));
 
   const myMonthlyDebt = myDebts.reduce((sum, d) => sum + (d.monthlyPayment || 0), 0);
   const othersMonthlyDebt = othersDebts.reduce((sum, d) => sum + (d.monthlyPayment || 0), 0);
   const totalMonthlyBilled = myMonthlyDebt + othersMonthlyDebt;
 
-  // Dynamic BNPL Items & SPayLater Statement Status
-  const isSpayStatementPaid = sotData.spayStatementStatus === 'PAID';
+  // Selected Billing Cycle & Cycle Statements Archive (Preserves monthly history for end-of-year review)
+  const currentCycle = sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)';
+  
+  const defaultStatements = {
+    'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)': {
+      cycle: 'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)',
+      monthKey: '2026-08',
+      status: 'PAID',
+      paidAt: '2026-08-10T15:00:00.000Z',
+      totalAmount: 5177.95,
+      bnplAmount: 0.00,
+      installmentAmount: 5177.95,
+      itemCount: 9,
+      note: 'ชำระเต็มจำนวนแล้วเมื่อ 10 ส.ค. 2026 (เก็บบันทึกประวัติศาสตร์ สรุปสิ้นปี 2026)'
+    }
+  };
+  const spayStatements = sotData.spayStatements || defaultStatements;
+  const currentCycleData = spayStatements[currentCycle];
+  
+  // Cycle-Aware Paid Status:
+  // August 2026 is officially marked PAID in history.
+  // Other cycles check per-cycle status or global status
+  const isSpayStatementPaid = currentCycleData ? (currentCycleData.status === 'PAID') : (currentCycle.includes('ส.ค.') ? true : (sotData.spayStatementStatus === 'PAID'));
+
+  // Active SPayLater installments for current cycle
+  const activeSpayDebts = debts.filter(d => 
+    (d.linkedAccountId === 'KBANK-SPAY' || d.category === 'SPAYLATER') && 
+    (d.remainingInstallments > 0 || d.remainingAmount > 0) &&
+    d.status !== 'COMPLETED'
+  );
+  
   const bnplItems = sotData.bnplItems || [];
-  const pendingBnplItems = isSpayStatementPaid ? [] : bnplItems.filter(i => !i.isPaidInStatement);
-  const totalBnplAmount = pendingBnplItems.reduce((sum, item) => sum + item.amount, 0);
-  const totalMonthlySpayInstallments = 5177.95;
-  const totalSpayStatement = isSpayStatementPaid ? 0 : (totalBnplAmount + totalMonthlySpayInstallments);
+  // Filter BNPL items by current billing cycle if tagged, or pending items for active cycle
+  const cycleBnplItems = bnplItems.filter(i => {
+    if (i.cycle) return i.cycle === currentCycle;
+    return !currentCycle.includes('ส.ค.');
+  });
+  const pendingBnplItems = isSpayStatementPaid ? [] : cycleBnplItems.filter(i => !i.isPaidInStatement);
+  const totalBnplAmount = isSpayStatementPaid ? 0 : pendingBnplItems.reduce((sum, item) => sum + item.amount, 0);
+
+  // Dynamic Monthly Installments based on Cycle:
+  // If cycle is PAID (e.g. August 2026): outstanding is 0! (Historical amount preserved in currentCycleData)
+  const totalMonthlySpayInstallments = isSpayStatementPaid 
+    ? 0 
+    : activeSpayDebts.reduce((sum, d) => sum + (d.monthlyPayment || 0), 0);
+
+  const totalSpayStatement = isSpayStatementPaid 
+    ? 0 
+    : (totalBnplAmount + totalMonthlySpayInstallments);
+
 
   // Total pending collection from others (เพื่อน/ครอบครัวฝากซื้อที่ยังไม่ได้จ่ายเงินคืนเรา)
   const pendingCollectionFromOthers = bnplItems
@@ -293,21 +336,37 @@ export default function DebtTracker({ sotData, updateSOTData }) {
       isPaidBack: true
     }));
 
+    const updatedStatements = {
+      ...spayStatements,
+      [currentCycle]: {
+        cycle: currentCycle,
+        status: 'PAID',
+        paidAt: new Date().toISOString(),
+        totalAmount: currentStatementAmount,
+        bnplAmount: totalBnplAmount,
+        installmentAmount: totalMonthlySpayInstallments,
+        itemCount: activeSpayDebts.length,
+        note: `ชำระเต็มจำนวนเรียบร้อยแล้วเมื่อ ${new Date().toLocaleDateString('th-TH')}`
+      }
+    };
+
     let nextData = {
       ...sotData,
       accounts: updatedAccounts,
       debts: updatedDebts,
       bnplItems: updatedBnpl,
+      spayStatements: updatedStatements,
       spayStatementStatus: 'PAID',
       spayStatementPaidAt: new Date().toISOString(),
       spayStatementLastPaidAmount: currentStatementAmount
     };
 
-    nextData = addAuditEvent(nextData, 'SPAYLATER', 'STATEMENT_AUG_2026', 'STATEMENT_PAID_FULL', {
+    nextData = addAuditEvent(nextData, 'SPAYLATER', currentCycle, 'STATEMENT_PAID_FULL', {
       totalAmount: currentStatementAmount,
       bnplPortion: totalBnplAmount,
-      installmentPortion: 5177.95
+      installmentPortion: totalMonthlySpayInstallments
     });
+
 
     updateSOTData(nextData);
     toast(`🎉 ชำระบิล Shopee SPayLater ฿${currentStatementAmount.toLocaleString()} เรียบร้อยแล้ว! (บันทึกสถานะชำระแล้ว - ไม่ต้องกันเงินซ้ำ)`, { type: 'success' });
@@ -673,7 +732,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 
                 {/* Cycle Selector Dropdown & Quick Advance Button */}
                 <select
-                  value={sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)'}
+                  value={sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)'}
                   onChange={(e) => {
                     const nextCycle = e.target.value;
                     updateSOTData({ ...sotData, spayStatementCycle: nextCycle });
@@ -691,16 +750,16 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                   }}
                 >
                   <option value="รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)">รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)</option>
-                  <option value="รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)">รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)</option>
-                  <option value="รอบ ต.ค. 2026 (ครบกำหนด 10 ต.ค.)">รอบ ต.ค. 2026 (ครบกำหนด 10 ต.ค.)</option>
-                  <option value="รอบ พ.ย. 2026 (ครบกำหนด 10 พ.ย.)">รอบ พ.ย. 2026 (ครบกำหนด 10 พ.ย.)</option>
-                  <option value="รอบ ธ.ค. 2026 (ครบกำหนด 10 ธ.ค.)">รอบ ธ.ค. 2026 (ครบกำหนด 10 ธ.ค.)</option>
+                  <option value="รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)">รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)</option>
+                  <option value="รอบ ต.ค. 2026 (ครบกำหนด 10 พ.ย.)">รอบ ต.ค. 2026 (ครบกำหนด 10 พ.ย.)</option>
+                  <option value="รอบ พ.ย. 2026 (ครบกำหนด 10 ธ.ค.)">รอบ พ.ย. 2026 (ครบกำหนด 10 ธ.ค.)</option>
+                  <option value="รอบ ธ.ค. 2026 (ครบกำหนด 10 ม.ค. 2027)">รอบ ธ.ค. 2026 (ครบกำหนด 10 ม.ค. 2027)</option>
                 </select>
 
                 <button
                   type="button"
                   onClick={() => {
-                    const nextCycle = getNextSpayCycleString(sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ก.ย.)');
+                    const nextCycle = getNextSpayCycleString(sotData.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)');
                     updateSOTData({ ...sotData, spayStatementCycle: nextCycle });
                     toast(`⏩ เลื่อนรอบบิลเป็น ${nextCycle} เรียบร้อยแล้ว!`, { type: 'success' });
                   }}
@@ -716,7 +775,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
               {isSpayStatementPaid 
-                ? `ชำระเต็มจำนวนเรียบร้อยแล้วเมื่อ ${sotData.spayStatementPaidAt ? new Date(sotData.spayStatementPaidAt).toLocaleDateString('th-TH') : 'ล่าสุด'} (ยอดค้างชำระ: ฿0.00)`
+                ? `ชำระเต็มจำนวนเรียบร้อยแล้วเมื่อ ${currentCycleData?.paidAt ? new Date(currentCycleData.paidAt).toLocaleDateString('th-TH') : (sotData.spayStatementPaidAt ? new Date(sotData.spayStatementPaidAt).toLocaleDateString('th-TH') : '10 ส.ค. 2026')} (ยอดค้างชำระ: ฿0.00)`
                 : 'รวมยอด "ช้อปก่อนจ่ายทีหลัง (BNPL / ฝากซื้อ VIP)" + "ค่างวดผ่อนประจำเดือน"'}
             </p>
           </div>
@@ -727,7 +786,7 @@ export default function DebtTracker({ sotData, updateSOTData }) {
                 {isSpayStatementPaid ? 'สถานะรอบบิลนี้' : 'ยอดรวมที่ต้องชำระทั้งบิล'}
               </div>
               <div style={{ fontSize: '1.8rem', fontWeight: 800, color: isSpayStatementPaid ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
-                {isSpayStatementPaid ? '฿0.00' : `฿${totalSpayStatement.toLocaleString()}`}
+                {isSpayStatementPaid ? '฿0.00' : `฿${totalSpayStatement.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
               </div>
             </div>
             {isSpayStatementPaid ? (
@@ -755,13 +814,13 @@ export default function DebtTracker({ sotData, updateSOTData }) {
               <span style={{ fontSize: '0.85rem', color: 'var(--accent-amber)', fontWeight: 600 }}>
                 🛒 1. ช้อปก่อนจ่ายทีหลัง (BNPL)
               </span>
-              <span className="badge badge-amber">{bnplItems.length} รายการ</span>
+              <span className="badge badge-amber">{pendingBnplItems.length} รายการ</span>
             </div>
             <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#fff' }}>
-              ฿{totalBnplAmount.toLocaleString()}
+              ฿{totalBnplAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              รวมสแกนกิน Shinkanzen + ของที่คนอื่นฝากกด VIP
+              {pendingBnplItems.length > 0 ? 'รวมสแกนกิน Shinkanzen + ของที่คนอื่นฝากกด VIP' : 'ไม่มีรายการช้อปก่อนจ่ายค้างชำระ'}
             </p>
           </div>
 
@@ -770,15 +829,26 @@ export default function DebtTracker({ sotData, updateSOTData }) {
               <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', fontWeight: 600 }}>
                 🛍️ 2. ค่างวดผ่อนประจำเดือนนี้
               </span>
-              <span className="badge badge-cyan">9 รายการผ่อน</span>
+              <span className={`badge ${isSpayStatementPaid ? 'badge-emerald' : 'badge-cyan'}`}>
+                {isSpayStatementPaid 
+                  ? (currentCycleData?.itemCount ? `${currentCycleData.itemCount} รายการ (ชำระแล้ว)` : 'ชำระแล้ว')
+                  : `${activeSpayDebts.length} รายการผ่อน`}
+              </span>
             </div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#fff' }}>
-              ฿5,177.95
+            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: isSpayStatementPaid ? 'var(--accent-emerald)' : '#fff' }}>
+              {isSpayStatementPaid 
+                ? (currentCycleData?.installmentAmount ? `฿${currentCycleData.installmentAmount.toLocaleString()} (ชำระแล้ว)` : '฿0.00')
+                : `฿${totalMonthlySpayInstallments.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </div>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              หูฟัง Sony (฿2,370), พวงมาลัย G29, หมอน Becell ฯลฯ
+              {isSpayStatementPaid
+                ? (currentCycleData?.note || 'ชำระเต็มจำนวนเรียบร้อยแล้ว (เก็บบันทึกประวัติศาสตร์สรุปสิ้นปี)')
+                : (activeSpayDebts.length > 0 
+                    ? activeSpayDebts.map(d => d.itemName).slice(0, 3).join(', ') + (activeSpayDebts.length > 3 ? ' ฯลฯ' : '')
+                    : 'ไม่มีรายการผ่อนค้างชำระ (ผ่อนครบหรือไม่มีรายการในรอบนี้)')}
             </p>
           </div>
+
 
           <div style={{ background: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.3)', padding: '14px', borderRadius: 'var(--radius-sm)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
@@ -846,10 +916,11 @@ export default function DebtTracker({ sotData, updateSOTData }) {
             { id: 'เพื่อนร่วมงาน', label: '🏢 เพื่อนร่วมงาน', icon: '' }
           ].map(p => {
             const isSelected = selectedPersonFilter === p.id;
-            const pDebts = p.id === 'ALL' ? debts : debts.filter(d => (d.owner === p.id || (p.id === 'เพื่อนร่วมงาน' && d.owner?.includes('เพื่อน'))));
-            const pBnpl = p.id === 'ALL' ? bnplItems : bnplItems.filter(b => (b.owner === p.id || (p.id === 'เพื่อนร่วมงาน' && b.owner?.includes('เพื่อน'))));
+            const pDebts = p.id === 'ALL' ? debts : debts.filter(d => (d.owner?.includes(p.id) || (p.id === 'เพื่อนร่วมงาน' && d.owner?.includes('เพื่อน'))));
+            const pBnpl = p.id === 'ALL' ? bnplItems : bnplItems.filter(b => (b.owner?.includes(p.id) || (p.id === 'เพื่อนร่วมงาน' && b.owner?.includes('เพื่อน'))));
             const totalCount = pDebts.length + pBnpl.length;
-            const pMonthly = pDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0);
+            const pMonthly = pDebts.filter(d => (d.remainingInstallments > 0 || d.remainingAmount > 0) && d.status !== 'COMPLETED').reduce((s, d) => s + (d.monthlyPayment || 0), 0);
+
 
             return (
               <button
@@ -1066,11 +1137,12 @@ export default function DebtTracker({ sotData, updateSOTData }) {
               ]
                 .filter(group => selectedPersonFilter === 'ALL' || selectedPersonFilter === group.name)
                 .map(group => {
-                  const groupDebts = debts.filter(d => (d.owner === group.name || (group.name === 'เพื่อนร่วมงาน' && d.owner?.includes('เพื่อน'))));
+                  const groupDebts = debts.filter(d => (d.owner?.includes(group.name) || (group.name === 'เพื่อนร่วมงาน' && d.owner?.includes('เพื่อน'))));
                   if (groupDebts.length === 0) return null;
 
-                  const groupMonthly = groupDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0);
+                  const groupMonthly = groupDebts.filter(d => (d.remainingInstallments > 0 || d.remainingAmount > 0) && d.status !== 'COMPLETED').reduce((s, d) => s + (d.monthlyPayment || 0), 0);
                   const groupRemaining = groupDebts.reduce((s, d) => s + (d.remainingAmount || 0), 0);
+
 
                   return (
                     <div key={group.name} className="glass-panel" style={{ padding: '18px 20px', border: '1px solid var(--border-subtle)' }}>

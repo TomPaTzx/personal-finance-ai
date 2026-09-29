@@ -437,6 +437,19 @@ export const INITIAL_DATA = {
   transactions: [],
   auditEvents: [],
   moneySavedTotal: 0,
+  spayStatements: {
+    'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)': {
+      cycle: 'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)',
+      monthKey: '2026-08',
+      status: 'PAID',
+      paidAt: '2026-08-10T15:00:00.000Z',
+      totalAmount: 5177.95,
+      bnplAmount: 0.00,
+      installmentAmount: 5177.95,
+      itemCount: 9,
+      note: 'ชำระเต็มจำนวนแล้วเมื่อ 10 ส.ค. 2026 (เก็บบันทึกประวัติศาสตร์ สรุปสิ้นปี 2026)'
+    }
+  },
   spayStatementStatus: 'UNPAID',
   spayStatementPaidAt: null,
   spayStatementCycle: 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)',
@@ -643,6 +656,19 @@ export const sanitizeSOTData = (parsed) => {
   return {
     ...INITIAL_DATA,
     ...parsed,
+    spayStatements: parsed.spayStatements || {
+      'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)': {
+        cycle: 'รอบ ส.ค. 2026 (ครบกำหนด 10 ส.ค.)',
+        monthKey: '2026-08',
+        status: 'PAID',
+        paidAt: '2026-08-10T15:00:00.000Z',
+        totalAmount: 5177.95,
+        bnplAmount: 0.00,
+        installmentAmount: 5177.95,
+        itemCount: 9,
+        note: 'ชำระเต็มจำนวนแล้วเมื่อ 10 ส.ค. 2026 (เก็บบันทึกประวัติศาสตร์ สรุปสิ้นปี 2026)'
+      }
+    },
     spayStatementStatus: parsed.spayStatementStatus || 'UNPAID',
     spayStatementPaidAt: parsed.spayStatementPaidAt || null,
     spayStatementCycle: parsed.spayStatementCycle || 'รอบ ก.ย. 2026 (ครบกำหนด 10 ต.ค.)',
